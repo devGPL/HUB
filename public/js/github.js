@@ -3,6 +3,19 @@
 const API = 'https://api.github.com';
 const PROTECTED = new Set(['main', 'master', 'dev', 'develop']);
 const WORKFLOWS = `... on Tree { entries { name object { ... on Blob { text } } } }`;
+const BRANCH_STATUS = `name target { ... on Commit { url statusCheckRollup { state contexts(first: 30) { nodes {
+  ... on CheckRun { name conclusion checkSuite { workflowRun { workflow { name } } } }
+  ... on StatusContext { context state }
+} } } } }`;
+const FAILED = new Set(['FAILURE', 'ERROR', 'TIMED_OUT', 'STARTUP_FAILURE']);
+
+// Nome legível de cada check que falhou: o workflow do Actions ou o contexto de status (ex.: Vercel).
+function failedChecks(rollup) {
+  const names = (rollup?.contexts.nodes ?? [])
+    .filter((c) => FAILED.has(c.conclusion ?? c.state))
+    .map((c) => c.checkSuite?.workflowRun?.workflow.name ?? c.name ?? c.context);
+  return [...new Set(names)];
+}
 
 export class AuthError extends Error {}
 export class ApiError extends Error {
@@ -52,6 +65,9 @@ function repoFragment(repo) {
     }
     mainWorkflows: object(expression: "main:.github/workflows") { ${WORKFLOWS} }
     headWorkflows: object(expression: "HEAD:.github/workflows") { ${WORKFLOWS} }
+    mainRef: ref(qualifiedName: "refs/heads/main") { ${BRANCH_STATUS} }
+    devRef: ref(qualifiedName: "refs/heads/dev") { ${BRANCH_STATUS} }
+    developRef: ref(qualifiedName: "refs/heads/develop") { ${BRANCH_STATUS} }
     devWorkflows: object(expression: "dev:.github/workflows") { ${WORKFLOWS} }
     developWorkflows: object(expression: "develop:.github/workflows") { ${WORKFLOWS} }
     ${logo}
@@ -142,6 +158,15 @@ function shapeRepo(raw, entry, config) {
     defaultBranch: raw.defaultBranchRef?.name ?? null,
     integrationBranch: integration,
     hasDevBranch: names.has('dev') || names.has('develop'),
+    // Status de CI na ponta das branches principais (null quando nenhum check roda nelas).
+    branchHealth: [raw.mainRef, raw.devRef, raw.developRef]
+      .filter((ref) => ref?.target)
+      .map((ref) => ({
+        branch: ref.name,
+        state: ref.target.statusCheckRollup?.state ?? null,
+        failed: failedChecks(ref.target.statusCheckRollup),
+        url: ref.target.url,
+      })),
     permission: raw.viewerPermission,
     canWrite: WRITE_ROLES.has(raw.viewerPermission),
     note: entry.note ?? null,
@@ -192,6 +217,7 @@ export async function collect(token, config) {
     generatedAt: new Date().toISOString(),
     org: config.org,
     staleBranchDays: config.staleBranchDays,
+    digest: config.digest ?? null,
     checks: config.checks.map(({ id, label, description, required, fix }) => ({ id, label, description, required, fix: fix ?? null })),
     repos,
     missing,

@@ -1,0 +1,38 @@
+name: Resumo diário
+
+# Manda no Discord um resumo de todos os repositórios monitorados: PRs esperando,
+# CI quebrado, projetos fora do padrão e branches paradas.
+#
+# Secrets neste repositório:
+#   - HUB_READ_TOKEN             : token só de leitura com acesso aos repositórios monitorados
+#   - DISCORD_DIGEST_WEBHOOK_URL : webhook do canal de resumo
+#
+# Atenção: este repositório é público, então os logs também são. O script não imprime
+# dados dos repositórios; não adicione passos que imprimam.
+
+on:
+  schedule:
+    # Dias úteis, 8h30 em Brasília (11h30 UTC).
+    - cron: '30 11 * * 1-5'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: digest
+  cancel-in-progress: false
+
+jobs:
+  digest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Enviar resumo
+        env:
+          GITHUB_TOKEN: ${{ secrets.HUB_READ_TOKEN }}
+          DISCORD_DIGEST_WEBHOOK_URL: ${{ secrets.DISCORD_DIGEST_WEBHOOK_URL }}
+        run: node scripts/digest.mjs

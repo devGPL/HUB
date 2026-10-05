@@ -63,6 +63,28 @@ foreach ($r in $repos) {
 
 Repositório novo no monitoramento precisa dos dois também. O webhook nunca vai para o código: ele só existe como secret.
 
+## Resumo diário no Discord
+
+O workflow `.github/workflows/digest.yml` roda em dias úteis às 8h30 (Brasília) e manda para um canal próprio:
+
+- PRs abertas há `digest.stalePrDays` dias ou mais, com o status de cada uma (aguardando review, ajustes pedidos, CI falhou, conflito).
+- Falhas nas branches `main` e `dev`/`develop` (CI, deploy, release) e PRs com CI falhando, com o nome do check.
+- Repositórios fora do padrão, apontando a PR de correção quando houver.
+- Branches paradas por repositório.
+
+Ele roda neste repositório e precisa de duas secrets aqui (não nos repositórios monitorados):
+
+- `HUB_READ_TOKEN`: token fine-grained só de leitura, dono `devGPL`, com acesso aos repositórios monitorados e leitura em `Contents`, `Pull requests`, `Metadata`, `Commit statuses` e `Actions`.
+- `DISCORD_DIGEST_WEBHOOK_URL`: webhook do canal de resumo.
+
+Este repositório é público e os logs do Actions também: o script não imprime dados dos repositórios. Para ver o resumo localmente sem enviar:
+
+```bash
+node scripts/digest.mjs --print
+```
+
+O GitHub desativa agendamentos de repositórios públicos depois de 60 dias sem atividade no repo. Se o resumo parar de chegar, reative em *Actions > Resumo diário*.
+
 ## Rodando local
 
 Pré-requisitos: Node 20+ e GitHub CLI logado (`gh auth login`).
