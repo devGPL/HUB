@@ -6,7 +6,7 @@ name: Notifica PR no Discord
 # O nome do repositório vai em destaque e cada repo tem uma cor fixa, para dar
 # para saber de onde veio a PR sem abrir o link.
 #
-# Configuração (de preferência na organização, para valer em todos os repos):
+# Configuração no próprio repositório (no plano Free, secrets da organização não chegam a repos privados):
 #   - Secret   DISCORD_WEBHOOK_URL : webhook do canal de notificação
 #   - Variable DISCORD_PO_ID       : ID do usuário do PO no Discord, para a menção
 

@@ -45,12 +45,23 @@ npm run fix-plan
 
 Todos os repositórios, menos o edifica (que tem canal próprio junto com os feedbacks), notificam no mesmo canal. A mensagem traz o nome do repositório em destaque, no topo do embed, e uma cor fixa por repositório.
 
-Configuração única, feita por um owner da organização em *Settings > Secrets and variables > Actions*:
+No plano Free, secrets e variáveis de organização não chegam a repositórios privados, então a configuração é feita **em cada repositório** (menos o edifica), por alguém com admin, em *Settings > Secrets and variables > Actions*:
 
-- Secret `DISCORD_WEBHOOK_URL`: webhook do canal, liberado para os repositórios monitorados (menos o edifica, que usa o secret próprio do repositório).
+- Secret `DISCORD_WEBHOOK_URL`: webhook do canal compartilhado.
 - Variable `DISCORD_PO_ID`: ID do usuário do PO no Discord, para a menção.
 
-O webhook nunca vai para o código: ele só existe como secret.
+Para fazer todos de uma vez no PowerShell:
+
+```powershell
+$repos = 'Tempus','Latitude','concretou','Ekko','DataBook','Alicerce','Lumina','auditBIM','capacitamais'
+$webhook = Read-Host 'Cole o webhook do Discord'
+foreach ($r in $repos) {
+  $webhook | gh secret set DISCORD_WEBHOOK_URL -R "devGPL/$r"
+  gh variable set DISCORD_PO_ID -R "devGPL/$r" --body <ID do PO>
+}
+```
+
+Repositório novo no monitoramento precisa dos dois também. O webhook nunca vai para o código: ele só existe como secret.
 
 ## Rodando local
 
