@@ -48,7 +48,7 @@ Todos os repositórios, menos o edifica (que tem canal próprio junto com os fee
 No plano Free, secrets e variáveis de organização não chegam a repositórios privados, então a configuração é feita **em cada repositório** (menos o edifica), por alguém com admin, em *Settings > Secrets and variables > Actions*:
 
 - Secret `DISCORD_WEBHOOK_URL`: webhook do canal compartilhado.
-- Variable `DISCORD_PO_ID`: ID do usuário do PO no Discord, para a menção.
+- Variable `DISCORD_PO_USER_ID`: ID do usuário do PO no Discord, para a menção (o nome antigo `DISCORD_PO_ID` também é aceito).
 
 Para fazer todos de uma vez no PowerShell:
 
@@ -57,7 +57,7 @@ $repos = 'Tempus','Latitude','concretou','Ekko','DataBook','Alicerce','Lumina','
 $webhook = Read-Host 'Cole o webhook do Discord'
 foreach ($r in $repos) {
   $webhook | gh secret set DISCORD_WEBHOOK_URL -R "devGPL/$r"
-  gh variable set DISCORD_PO_ID -R "devGPL/$r" --body <ID do PO>
+  gh variable set DISCORD_PO_USER_ID -R "devGPL/$r" --body <ID do PO>
 }
 ```
 

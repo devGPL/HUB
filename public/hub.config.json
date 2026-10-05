@@ -68,7 +68,7 @@
         "title": "ci: padroniza notificação de PR no Discord",
         "marker": "gpl-hub:discord-pr@1",
         "replaces": "discord",
-        "setup": "O workflow lê o secret DISCORD_WEBHOOK_URL e a variável DISCORD_PO_ID, configurados no próprio repositório (no plano Free, os da organização não chegam a repos privados). Sem eles, o workflow só pula a notificação."
+        "setup": "O workflow lê o secret DISCORD_WEBHOOK_URL e a variável DISCORD_PO_USER_ID, configurados no próprio repositório (no plano Free, os da organização não chegam a repos privados). Sem eles, o workflow só pula a notificação."
       }
     },
     {

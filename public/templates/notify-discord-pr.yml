@@ -8,7 +8,8 @@ name: Notifica PR no Discord
 #
 # Configuração no próprio repositório (no plano Free, secrets da organização não chegam a repos privados):
 #   - Secret   DISCORD_WEBHOOK_URL : webhook do canal de notificação
-#   - Variable DISCORD_PO_ID       : ID do usuário do PO no Discord, para a menção
+#   - Variable DISCORD_PO_USER_ID  : ID do usuário do PO no Discord, para a menção
+#                                    (DISCORD_PO_ID também é aceito, nome antigo do DataBook)
 
 on:
   pull_request:
@@ -25,7 +26,7 @@ jobs:
       - name: Postar no Discord
         env:
           WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          PO_ID: ${{ vars.DISCORD_PO_ID }}
+          PO_ID: ${{ vars.DISCORD_PO_USER_ID || vars.DISCORD_PO_ID }}
           REPO: ${{ github.event.repository.name }}
           REPO_URL: ${{ github.event.repository.html_url }}
           NUMBER: ${{ github.event.pull_request.number }}
