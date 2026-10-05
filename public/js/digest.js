@@ -157,5 +157,10 @@ export function buildDigest(data, now = Date.now()) {
     });
   }
 
-  return { username: 'GPL HUB', allowed_mentions: { parse: [] }, embeds };
+  return {
+    username: 'GPL HUB',
+    ...(hub ? { avatar_url: new URL('avatar.png', hub).toString() } : {}),
+    allowed_mentions: { parse: [] },
+    embeds,
+  };
 }
