@@ -17,6 +17,41 @@ Token recomendado: *fine-grained*, dono `devGPL`, todos os repositórios, leitur
 
 > Não adicione etapas de build que gravem dados dos repositórios no site publicado.
 
+## Botão Corrigir
+
+Para cada padrão faltando, o HUB abre uma pull request na branch de integração (`dev` ou `develop`) com um único commit. Nada vai direto para a branch.
+
+- **No repositório**: botão *Corrigir* em cada padrão, ou *Corrigir tudo numa PR* quando há mais de uma pendência.
+- **Na aba Padrões**: *Corrigir pendências* abre uma PR por repositório de uma vez. Repositórios em que você não tem escrita ficam de fora.
+- **Desatualizado** (amarelo): o workflow existe, mas não é o modelo do HUB. Hoje vale só para o Discord, para todos os repos notificarem no mesmo formato.
+
+| Padrão | Como é gerado |
+| --- | --- |
+| CI | Montado a partir do repo: lockfile (npm, yarn, pnpm), versão do Node em `engines` ou `.nvmrc`, e os scripts `lint`, `typecheck` e `test` que existirem. Sem nenhum deles, roda `tsc --noEmit`. |
+| Release | Workflow + `release-please-config.json` + `.release-please-manifest.json`, com a versão do `package.json` e `bootstrap-sha` na ponta da main. Arquivos de config existentes são mantidos. |
+| Sync dev | `templates/sync-main-to-dev.yml`: a cada push na main, fast-forward ou merge na dev; se falhar, abre PR. |
+| Discord | `templates/notify-discord-pr.yml`: substitui o workflow antigo de Discord, se houver. |
+| PR Title | `templates/pr-title.yml` (action-semantic-pull-request). Repos que já validam com commitlint contam como ok. |
+
+O token precisa de escrita em `Contents`, `Pull requests` e `Workflows` (classic: `repo` e `workflow`).
+
+Para ver o que seria feito sem escrever nada no GitHub:
+
+```bash
+npm run fix-plan
+```
+
+### Discord
+
+Todos os repositórios, menos o edifica (que tem canal próprio junto com os feedbacks), notificam no mesmo canal. A mensagem traz o nome do repositório em destaque, no topo do embed, e uma cor fixa por repositório.
+
+Configuração única, feita por um owner da organização em *Settings > Secrets and variables > Actions*:
+
+- Secret `DISCORD_WEBHOOK_URL`: webhook do canal, liberado para os repositórios monitorados (menos o edifica, que usa o secret próprio do repositório).
+- Variable `DISCORD_PO_ID`: ID do usuário do PO no Discord, para a menção.
+
+O webhook nunca vai para o código: ele só existe como secret.
+
 ## Rodando local
 
 Pré-requisitos: Node 20+ e GitHub CLI logado (`gh auth login`).

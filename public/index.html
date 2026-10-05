@@ -27,12 +27,13 @@
         <li>
           <span class="n">01</span>
           <div>Crie um <b>fine-grained token</b> com dono <code>devGPL</code>, acesso a <b>todos os repositórios</b> e permissões de leitura em <code>Contents</code>, <code>Pull requests</code> e <code>Metadata</code>.
+            Para usar o botão <b>Corrigir</b>, dê escrita em <code>Contents</code>, <code>Pull requests</code> e <code>Workflows</code>.
             <a class="link" href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">Criar token no GitHub</a>
           </div>
         </li>
         <li>
           <span class="n">02</span>
-          <div>Se a org pedir aprovação, aguarde um admin liberar. Se ela não aceitar fine-grained, use um <b>token classic</b> com escopo <code>repo</code>.</div>
+          <div>Se a org pedir aprovação, aguarde um admin liberar. Se ela não aceitar fine-grained, use um <b>token classic</b> com escopos <code>repo</code> e <code>workflow</code>.</div>
         </li>
         <li>
           <span class="n">03</span>
@@ -99,8 +100,11 @@
       <section class="view" id="view-standards" hidden>
         <div class="panel hud">
           <div class="panel-head">
-            <h2>Matriz de padrões</h2>
-            <p class="hint">Lido dos workflows em <code>.github/workflows</code> da main e da branch padrão. Colunas em itálico são opcionais.</p>
+            <div>
+              <h2>Matriz de padrões</h2>
+              <p class="hint">Lido dos workflows em <code>.github/workflows</code> da main e da branch padrão. Colunas em itálico são opcionais. Amarelo: existe, mas fora do modelo do HUB.</p>
+            </div>
+            <div id="fix-bulk"></div>
           </div>
           <div class="table-wrap"><table class="matrix" id="matrix"></table></div>
         </div>
@@ -112,6 +116,11 @@
     <div class="drawer-backdrop" data-close></div>
     <div class="drawer-panel" role="dialog" aria-modal="true" id="drawer-panel"></div>
   </aside>
+
+  <div class="fix" id="fix">
+    <div class="fix-backdrop"></div>
+    <div class="fix-panel cut" role="dialog" aria-modal="true" id="fix-panel"></div>
+  </div>
 
   <div class="toast" id="toast" hidden></div>
   <script type="module" src="js/app.js"></script>

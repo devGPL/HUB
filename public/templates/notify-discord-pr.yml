@@ -1,0 +1,77 @@
+# gpl-hub:discord-pr@1
+# Modelo gerenciado pelo GPL HUB (https://github.com/devGPL/HUB). Mudanças aqui devem ir para o modelo.
+name: Notifica PR no Discord
+
+# Avisa o PO no canal compartilhado quando uma PR fica pronta para revisão.
+# O nome do repositório vai em destaque e cada repo tem uma cor fixa, para dar
+# para saber de onde veio a PR sem abrir o link.
+#
+# Configuração (de preferência na organização, para valer em todos os repos):
+#   - Secret   DISCORD_WEBHOOK_URL : webhook do canal de notificação
+#   - Variable DISCORD_PO_ID       : ID do usuário do PO no Discord, para a menção
+
+on:
+  pull_request:
+    types: [opened, ready_for_review, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.pull_request.draft == false }}
+    steps:
+      - name: Postar no Discord
+        env:
+          WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          PO_ID: ${{ vars.DISCORD_PO_ID }}
+          REPO: ${{ github.event.repository.name }}
+          REPO_URL: ${{ github.event.repository.html_url }}
+          NUMBER: ${{ github.event.pull_request.number }}
+          TITLE: ${{ github.event.pull_request.title }}
+          URL: ${{ github.event.pull_request.html_url }}
+          AUTHOR: ${{ github.event.pull_request.user.login }}
+          AVATAR: ${{ github.event.pull_request.user.avatar_url }}
+          BASE: ${{ github.event.pull_request.base.ref }}
+          HEAD: ${{ github.event.pull_request.head.ref }}
+        run: |
+          if [ -z "$WEBHOOK" ]; then
+            echo "DISCORD_WEBHOOK_URL não configurado; pulando notificação."
+            exit 0
+          fi
+
+          MENTION=""
+          if [ -n "$PO_ID" ]; then MENTION="<@$PO_ID> "; fi
+
+          # Cor fixa por repositório, escolhida pelo hash do nome.
+          PALETTE=(3066993 3447003 15105570 15277667 1752220 16776960 10181046 15548997 2067276 12745742)
+          HASH=$(printf '%s' "$REPO" | cksum | cut -d' ' -f1)
+          COLOR=${PALETTE[$((HASH % ${#PALETTE[@]}))]}
+
+          jq -n \
+            --arg content "${MENTION}nova PR em **${REPO}** para revisar" \
+            --arg repo "$REPO" \
+            --arg repo_url "$REPO_URL" \
+            --arg title "#${NUMBER} ${TITLE}" \
+            --arg url "$URL" \
+            --arg author "$AUTHOR" \
+            --arg avatar "$AVATAR" \
+            --arg branch "${HEAD} → ${BASE}" \
+            --argjson color "$COLOR" \
+            '{
+              content: $content,
+              allowed_mentions: { parse: ["users"] },
+              embeds: [{
+                author: { name: $repo, url: $repo_url },
+                title: $title,
+                url: $url,
+                color: $color,
+                thumbnail: { url: $avatar },
+                fields: [
+                  { name: "Autor", value: $author, inline: true },
+                  { name: "Branch", value: $branch, inline: true }
+                ]
+              }]
+            }' \
+            | curl -sf -H "Content-Type: application/json" -d @- "$WEBHOOK"

@@ -1,0 +1,21 @@
+# gpl-hub:pr-title@1
+# Modelo gerenciado pelo GPL HUB (https://github.com/devGPL/HUB). Mudanças aqui devem ir para o modelo.
+name: PR Title
+
+# Garante que o título da PR siga o Conventional Commits (feat:, fix:, chore: ...),
+# que é o que o release-please usa para montar versão e changelog.
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  pull-requests: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: amannn/action-semantic-pull-request@v5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

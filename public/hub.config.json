@@ -3,7 +3,7 @@
   "staleBranchDays": 30,
   "repos": [
     { "name": "Tempus", "logo": { "path": "public/logo-tempus.png", "crop": [80, 56, 46, 74], "tile": "light" } },
-    { "name": "edifica", "logo": { "path": "src/app/icon.png", "tile": "dark" } },
+    { "name": "edifica", "logo": { "path": "src/app/icon.png", "tile": "dark" }, "keepOwn": ["discord"], "note": "Discord em canal próprio, junto com os feedbacks." },
     { "name": "Latitude" },
     { "name": "concretou", "logo": { "path": "public/images/logo.png", "crop": [0, 0, 74, 73], "tile": "light" } },
     { "name": "Ekko", "logo": { "path": "public/img/logos/logoekko.jpg", "crop": [860, 160, 1180, 940], "tile": "light" } },
@@ -19,35 +19,70 @@
       "label": "CI",
       "description": "Workflow de CI rodando em pull_request",
       "required": true,
-      "match": { "fileName": "^ci\\.ya?ml$" }
+      "match": { "fileName": "^ci\\.ya?ml$" },
+      "fix": {
+        "generator": "ci",
+        "path": ".github/workflows/ci.yml",
+        "branch": "chore/hub-ci",
+        "title": "ci: adiciona checks de lint, tipos e testes nas PRs"
+      }
     },
     {
       "id": "release-please",
       "label": "Release",
       "description": "Release Please: versionamento e changelog automáticos",
       "required": true,
-      "match": { "content": "release-please" }
+      "match": { "content": "release-please" },
+      "fix": {
+        "generator": "release-please",
+        "path": ".github/workflows/release-please.yml",
+        "branch": "chore/hub-release",
+        "title": "ci: adiciona release-please para versão e changelog",
+        "setup": "Depois do merge, a cada push na main o release-please mantém uma PR de release aberta. As mensagens de commit precisam seguir o Conventional Commits."
+      }
     },
     {
       "id": "sync-to-dev",
       "label": "Sync dev",
       "description": "Sincronização automática da main para dev ou develop",
       "required": true,
-      "match": { "fileName": "sync.*(dev|develop)", "content": "sync (main|release).*(to )?(dev|develop)" }
+      "match": { "fileName": "sync.*(dev|develop)", "content": "sync (main|release).*(to )?(dev|develop)" },
+      "fix": {
+        "template": "templates/sync-main-to-dev.yml",
+        "path": ".github/workflows/sync-main-to-dev.yml",
+        "branch": "chore/hub-sync-dev",
+        "title": "ci: sincroniza main com dev automaticamente",
+        "setup": "Em Settings > Actions > General, habilite \"Allow GitHub Actions to create and approve pull requests\" para o workflow conseguir abrir PR quando houver conflito."
+      }
     },
     {
       "id": "discord",
       "label": "Discord",
-      "description": "Notificação de PR no Discord",
+      "description": "Notificação de PR no canal compartilhado do Discord",
       "required": true,
-      "match": { "content": "discord" }
+      "match": { "content": "discord" },
+      "fix": {
+        "template": "templates/notify-discord-pr.yml",
+        "path": ".github/workflows/notify-discord-pr.yml",
+        "branch": "chore/hub-discord",
+        "title": "ci: padroniza notificação de PR no Discord",
+        "marker": "gpl-hub:discord-pr@1",
+        "replaces": "discord",
+        "setup": "O workflow lê o secret DISCORD_WEBHOOK_URL e a variável DISCORD_PO_ID. Se a organização já tiver os dois liberados para este repositório, não precisa fazer nada."
+      }
     },
     {
       "id": "pr-title",
       "label": "PR Title",
       "description": "Validação do título da PR no padrão Conventional Commits",
       "required": false,
-      "match": { "fileName": "pr-title", "content": "semantic-pull-request" }
+      "match": { "fileName": "pr-title", "content": "semantic-pull-request|commitlint" },
+      "fix": {
+        "template": "templates/pr-title.yml",
+        "path": ".github/workflows/pr-title.yml",
+        "branch": "chore/hub-pr-title",
+        "title": "ci: valida título da PR no padrão Conventional Commits"
+      }
     },
     {
       "id": "glitchtip",

@@ -1,0 +1,86 @@
+# gpl-hub:sync-dev@1
+# Modelo gerenciado pelo GPL HUB (https://github.com/devGPL/HUB). Mudanças aqui devem ir para o modelo.
+name: Sync main to dev
+
+# Toda vez que algo entra na main (merge da release, hotfix), leva para a branch de
+# integração (dev ou develop). Usa `push` e não `release: published` porque releases
+# criadas pelo GITHUB_TOKEN do release-please não disparam outros workflows.
+#
+# Ordem de tentativa: fast-forward, merge comum e, se houver conflito ou a branch
+# estiver protegida, abre uma PR para resolver na mão.
+#
+# Requer em Settings > Actions > General: "Allow GitHub Actions to create and approve pull requests".
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: sync-main-to-dev
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Descobrir a branch de integração
+        id: target
+        run: |
+          for b in dev develop; do
+            if git ls-remote --exit-code --heads origin "$b" > /dev/null; then
+              echo "branch=$b" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          done
+          echo "Nenhuma branch dev ou develop encontrada; nada para sincronizar."
+          echo "branch=" >> "$GITHUB_OUTPUT"
+
+      - name: Sincronizar
+        if: steps.target.outputs.branch != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TARGET: ${{ steps.target.outputs.branch }}
+        run: |
+          set -u
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin main "$TARGET"
+
+          if git merge-base --is-ancestor origin/main "origin/$TARGET"; then
+            echo "$TARGET já contém a main."
+            exit 0
+          fi
+
+          git checkout -B "$TARGET" "origin/$TARGET"
+
+          if git merge --ff-only origin/main && git push origin "$TARGET"; then
+            echo "Fast-forward aplicado."
+            exit 0
+          fi
+
+          git reset --hard "origin/$TARGET"
+          if git merge --no-ff origin/main -m "chore: sync main to $TARGET" && git push origin "$TARGET"; then
+            echo "Merge aplicado."
+            exit 0
+          fi
+
+          echo "Não deu para aplicar direto; abrindo PR."
+          git merge --abort 2>/dev/null || true
+          BRANCH="chore/sync-main-to-$TARGET"
+          git checkout -B "$BRANCH" origin/main
+          git push --force origin "$BRANCH"
+
+          if gh pr list --head "$BRANCH" --base "$TARGET" --state open --json number --jq 'length' | grep -q '^0$'; then
+            gh pr create --base "$TARGET" --head "$BRANCH" \
+              --title "chore: sync main to $TARGET" \
+              --body "Sync automático da \`main\` para \`$TARGET\`. O merge direto falhou (conflito ou branch protegida); resolva e faça o merge."
+          fi

@@ -5,6 +5,14 @@ const PROTECTED = new Set(['main', 'master', 'dev', 'develop']);
 const WORKFLOWS = `... on Tree { entries { name object { ... on Blob { text } } } }`;
 
 export class AuthError extends Error {}
+export class ApiError extends Error {
+  constructor(message, status) {
+    super(message);
+    this.status = status;
+  }
+}
+
+const WRITE_ROLES = new Set(['ADMIN', 'MAINTAIN', 'WRITE']);
 
 async function graphql(token, query) {
   const res = await fetch(`${API}/graphql`, {
@@ -26,7 +34,7 @@ export async function whoami(token) {
 function repoFragment(repo) {
   const logo = repo.logo?.path ? `logoBlob: object(expression: "HEAD:${repo.logo.path}") { oid }` : '';
   return `
-    name url description isArchived pushedAt
+    name url description isArchived pushedAt viewerPermission
     defaultBranchRef { name }
     refs(refPrefix: "refs/heads/", first: 100) {
       totalCount
@@ -60,11 +68,21 @@ function mergeWorkflows(raw) {
   return [...byName].map(([name, text]) => ({ name, text }));
 }
 
-function runCheck(check, workflows) {
+function runCheck(check, workflows, entry) {
   const fileRe = check.match.fileName && new RegExp(check.match.fileName, 'i');
   const contentRe = check.match.content && new RegExp(check.match.content, 'i');
   const hits = workflows.filter((w) => (fileRe && fileRe.test(w.name)) || (contentRe && contentRe.test(w.text)));
-  return { id: check.id, ok: hits.length > 0, files: hits.map((w) => w.name) };
+  const ok = hits.length > 0;
+  const fix = check.fix;
+  const keepOwn = entry.keepOwn?.includes(check.id) ?? false;
+  // Desatualizado: tem o workflow, mas não o modelo atual do HUB (identificado pelo marcador no arquivo).
+  const outdated = Boolean(ok && fix?.marker && !keepOwn && !hits.some((w) => w.text.includes(fix.marker)));
+  // Arquivos antigos que a correção substitui: só os que casam com `replaces` pelo nome, nunca outro workflow que só cita o termo.
+  const fixFile = fix?.path.split('/').pop();
+  const replaces = fix?.replaces
+    ? hits.filter((w) => new RegExp(fix.replaces, 'i').test(w.name) && w.name !== fixFile).map((w) => w.name)
+    : [];
+  return { id: check.id, ok, outdated, keepOwn, files: hits.map((w) => w.name), replaces };
 }
 
 // S: tudo, inclusive opcionais. A: todos os obrigatórios. B, C, D: 1, 2, 3+ obrigatórios faltando.
@@ -97,9 +115,10 @@ function shapeRepo(raw, entry, config) {
     .sort((a, b) => Date.parse(b.lastCommit ?? 0) - Date.parse(a.lastCommit ?? 0));
 
   const workflows = mergeWorkflows(raw);
-  const checks = config.checks.map((c) => runCheck(c, workflows));
+  const checks = config.checks.map((c) => runCheck(c, workflows, entry));
   const names = new Set(branches.map((b) => b.name));
   const work = branches.filter((b) => !b.protected);
+  const integration = ['dev', 'develop'].find((b) => names.has(b)) ?? raw.defaultBranchRef?.name ?? 'main';
 
   return {
     name: raw.name,
@@ -108,7 +127,11 @@ function shapeRepo(raw, entry, config) {
     description: raw.description,
     pushedAt: raw.pushedAt,
     defaultBranch: raw.defaultBranchRef?.name ?? null,
+    integrationBranch: integration,
     hasDevBranch: names.has('dev') || names.has('develop'),
+    permission: raw.viewerPermission,
+    canWrite: WRITE_ROLES.has(raw.viewerPermission),
+    note: entry.note ?? null,
     logo: entry.logo && raw.logoBlob ? { ...entry.logo, oid: raw.logoBlob.oid } : null,
     branchCount: raw.refs.totalCount,
     workBranchCount: work.length,
@@ -156,15 +179,88 @@ export async function collect(token, config) {
     generatedAt: new Date().toISOString(),
     org: config.org,
     staleBranchDays: config.staleBranchDays,
-    checks: config.checks.map(({ id, label, description, required }) => ({ id, label, description, required })),
+    checks: config.checks.map(({ id, label, description, required, fix }) => ({ id, label, description, required, fix: fix ?? null })),
     repos,
     missing,
     rateLimit: data?.rateLimit ?? null,
   };
 }
 
+async function rest(token, method, path, body) {
+  const res = await fetch(`${API}${path}`, {
+    method,
+    headers: { Authorization: `bearer ${token}`, Accept: 'application/vnd.github+json', 'Content-Type': 'application/json' },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const data = res.status === 204 ? null : await res.json().catch(() => null);
+  if (!res.ok) throw new ApiError(data?.message ?? `GitHub respondeu ${res.status}`, res.status);
+  return data;
+}
+
+const encodePath = (p) => p.split('/').map(encodeURIComponent).join('/');
+
+/** Conteúdo de um arquivo de texto numa ref, ou null se não existir. */
+export async function getText(token, org, repo, path, ref) {
+  const res = await fetch(`${API}/repos/${org}/${repo}/contents/${encodePath(path)}?ref=${encodeURIComponent(ref)}`, {
+    headers: { Authorization: `bearer ${token}`, Accept: 'application/vnd.github.raw' },
+  });
+  if (res.status === 404) return null;
+  if (!res.ok) throw new ApiError(`Falha ao ler ${path}: ${res.status}`, res.status);
+  return res.text();
+}
+
+export async function refSha(token, org, repo, branch) {
+  const ref = await rest(token, 'GET', `/repos/${org}/${repo}/git/ref/heads/${encodeURIComponent(branch)}`);
+  return ref.object.sha;
+}
+
+export async function findOpenPr(token, org, repo, branch) {
+  const prs = await rest(token, 'GET', `/repos/${org}/${repo}/pulls?state=open&head=${org}:${encodeURIComponent(branch)}`);
+  return prs[0] ?? null;
+}
+
+/**
+ * Abre uma PR com um único commit que grava `files` e remove `deletePaths`.
+ * Se a branch já existir sem PR aberta, ela é recriada a partir da base.
+ */
+export async function openFixPr(token, { org, repo, base, branch, files, deletePaths = [], title, body }) {
+  const r = `/repos/${org}/${repo}`;
+  const baseCommit = await rest(token, 'GET', `${r}/git/commits/${await refSha(token, org, repo, base)}`);
+
+  // Só remove o que de fato existe na base (o arquivo antigo pode estar só na main).
+  const existing = await Promise.all(
+    deletePaths.map((p) =>
+      rest(token, 'GET', `${r}/contents/${encodePath(p)}?ref=${encodeURIComponent(base)}`)
+        .then(() => p)
+        .catch((err) => (err.status === 404 ? null : Promise.reject(err))),
+    ),
+  );
+
+  const tree = await rest(token, 'POST', `${r}/git/trees`, {
+    base_tree: baseCommit.tree.sha,
+    tree: [
+      ...files.map((f) => ({ path: f.path, mode: '100644', type: 'blob', content: f.content })),
+      ...existing.filter(Boolean).map((p) => ({ path: p, mode: '100644', type: 'blob', sha: null })),
+    ],
+  });
+  const commit = await rest(token, 'POST', `${r}/git/commits`, {
+    message: title,
+    tree: tree.sha,
+    parents: [baseCommit.sha],
+  });
+
+  try {
+    await rest(token, 'POST', `${r}/git/refs`, { ref: `refs/heads/${branch}`, sha: commit.sha });
+  } catch (err) {
+    if (err.status !== 422) throw err;
+    await rest(token, 'PATCH', `${r}/git/refs/heads/${encodeURIComponent(branch)}`, { sha: commit.sha, force: true });
+  }
+
+  return rest(token, 'POST', `${r}/pulls`, { title, head: branch, base, body });
+}
+
 export async function fetchRaw(token, org, repo, path) {
-  const res = await fetch(`${API}/repos/${org}/${repo}/contents/${path.split('/').map(encodeURIComponent).join('/')}`, {
+  const res = await fetch(`${API}/repos/${org}/${repo}/contents/${encodePath(path)}`, {
     headers: { Authorization: `bearer ${token}`, Accept: 'application/vnd.github.raw' },
   });
   if (!res.ok) throw new Error(`Falha ao baixar ${repo}/${path}: ${res.status}`);
