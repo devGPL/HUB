@@ -1,0 +1,15 @@
+{
+  "name": "gpl-hub",
+  "version": "0.1.0",
+  "private": true,
+  "description": "HUB de monitoramento dos repositórios de desenvolvimento da GPL",
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs",
+    "dev": "node --watch server.mjs",
+    "snapshot": "node scripts/snapshot.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

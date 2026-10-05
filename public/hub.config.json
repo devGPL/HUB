@@ -1,0 +1,60 @@
+{
+  "org": "devGPL",
+  "staleBranchDays": 30,
+  "repos": [
+    { "name": "Tempus", "logo": { "path": "public/logo-tempus.png", "crop": [80, 56, 46, 74], "tile": "light" } },
+    { "name": "edifica", "logo": { "path": "src/app/icon.png", "tile": "dark" } },
+    { "name": "Latitude" },
+    { "name": "concretou", "logo": { "path": "public/images/logo.png", "crop": [0, 0, 74, 73], "tile": "light" } },
+    { "name": "Ekko", "logo": { "path": "public/img/logos/logoekko.jpg", "crop": [860, 160, 1180, 940], "tile": "light" } },
+    { "name": "DataBook" },
+    { "name": "Alicerce" },
+    { "name": "Lumina", "logo": { "path": "public/lumina-logo.png", "crop": [110, 30, 230, 125], "tile": "dark" } },
+    { "name": "auditBIM", "label": "Audit BIM", "logo": { "path": "public/audit-bim-logo.png", "crop": [68, 40, 108, 106], "tile": "light" } },
+    { "name": "capacitamais", "label": "Capacita+", "logo": { "path": "public/capacita-logo-interno-escuro.png", "crop": [372, 0, 200, 200], "tile": "light" } }
+  ],
+  "checks": [
+    {
+      "id": "ci",
+      "label": "CI",
+      "description": "Workflow de CI rodando em pull_request",
+      "required": true,
+      "match": { "fileName": "^ci\\.ya?ml$" }
+    },
+    {
+      "id": "release-please",
+      "label": "Release",
+      "description": "Release Please: versionamento e changelog automáticos",
+      "required": true,
+      "match": { "content": "release-please" }
+    },
+    {
+      "id": "sync-to-dev",
+      "label": "Sync dev",
+      "description": "Sincronização automática da main para dev ou develop",
+      "required": true,
+      "match": { "fileName": "sync.*(dev|develop)", "content": "sync (main|release).*(to )?(dev|develop)" }
+    },
+    {
+      "id": "discord",
+      "label": "Discord",
+      "description": "Notificação de PR no Discord",
+      "required": true,
+      "match": { "content": "discord" }
+    },
+    {
+      "id": "pr-title",
+      "label": "PR Title",
+      "description": "Validação do título da PR no padrão Conventional Commits",
+      "required": false,
+      "match": { "fileName": "pr-title", "content": "semantic-pull-request" }
+    },
+    {
+      "id": "glitchtip",
+      "label": "GlitchTip",
+      "description": "Publicação de release no GlitchTip",
+      "required": false,
+      "match": { "content": "glitchtip" }
+    }
+  ]
+}

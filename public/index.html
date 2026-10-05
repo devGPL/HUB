@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>GPL HUB</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="scan" id="scan" aria-hidden="true"></div>
+
+  <!-- Tela de acesso: o site é público, os dados só aparecem com um token de quem tem acesso aos repos. -->
+  <section class="gate" id="gate" hidden>
+    <div class="gate-card cut">
+      <div class="gate-head">
+        <span class="mark">GPL<b>HUB</b></span>
+        <span class="tag">ACESSO RESTRITO</span>
+      </div>
+      <h1>Conecte sua conta do GitHub</h1>
+      <p class="lead">O HUB lê os repositórios da <b>devGPL</b> direto da API do GitHub, usando um token seu. O token fica salvo só neste navegador e nunca sai dele para outro lugar.</p>
+      <ol class="steps">
+        <li>
+          <span class="n">01</span>
+          <div>Crie um <b>fine-grained token</b> com dono <code>devGPL</code>, acesso a <b>todos os repositórios</b> e permissões de leitura em <code>Contents</code>, <code>Pull requests</code> e <code>Metadata</code>.
+            <a class="link" href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">Criar token no GitHub</a>
+          </div>
+        </li>
+        <li>
+          <span class="n">02</span>
+          <div>Se a org pedir aprovação, aguarde um admin liberar. Se ela não aceitar fine-grained, use um <b>token classic</b> com escopo <code>repo</code>.</div>
+        </li>
+        <li>
+          <span class="n">03</span>
+          <div>Cole o token abaixo.</div>
+        </li>
+      </ol>
+      <form id="gate-form" autocomplete="off">
+        <label class="field">
+          <span>Token</span>
+          <input type="password" id="gate-token" placeholder="github_pat_..." spellcheck="false" required />
+        </label>
+        <button class="btn primary" type="submit" id="gate-submit">Conectar</button>
+      </form>
+      <p class="gate-error" id="gate-error" hidden></p>
+    </div>
+  </section>
+
+  <div class="app" id="app" hidden>
+    <header class="topbar">
+      <div class="brand">
+        <span class="mark">GPL<b>HUB</b></span>
+        <span class="sep"></span>
+        <div class="sync">
+          <span class="dot" id="sync-dot"></span>
+          <span id="meta">Sincronizando</span>
+        </div>
+      </div>
+      <div class="top-actions">
+        <a class="btn ghost" id="org-link" target="_blank" rel="noopener"></a>
+        <button class="btn" id="refresh" type="button"></button>
+        <div class="user" id="user"></div>
+      </div>
+    </header>
+
+    <main>
+      <section class="stats" id="stats"></section>
+
+      <nav class="tabs" id="tabs">
+        <button class="tab active" data-view="repos" type="button">Repositórios</button>
+        <button class="tab" data-view="prs" type="button">Pull requests <span class="count" id="tab-prs"></span></button>
+        <button class="tab" data-view="standards" type="button">Padrões</button>
+      </nav>
+
+      <section class="view" id="view-repos">
+        <div class="toolbar">
+          <div class="filters" id="filters">
+            <button data-filter="all" class="chip active" type="button">Todos</button>
+            <button data-filter="prs" class="chip" type="button">Com PR aberta</button>
+            <button data-filter="noncompliant" class="chip" type="button">Fora do padrão</button>
+            <button data-filter="stale" class="chip" type="button">Branches paradas</button>
+          </div>
+          <label class="search">
+            <span id="search-icon"></span>
+            <input type="search" id="search" placeholder="Buscar repositório" />
+          </label>
+        </div>
+        <div class="cards" id="cards"></div>
+      </section>
+
+      <section class="view" id="view-prs" hidden>
+        <div class="panel hud" id="prs"></div>
+      </section>
+
+      <section class="view" id="view-standards" hidden>
+        <div class="panel hud">
+          <div class="panel-head">
+            <h2>Matriz de padrões</h2>
+            <p class="hint">Lido dos workflows em <code>.github/workflows</code> da main e da branch padrão. Colunas em itálico são opcionais.</p>
+          </div>
+          <div class="table-wrap"><table class="matrix" id="matrix"></table></div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <aside class="drawer" id="drawer" aria-hidden="true">
+    <div class="drawer-backdrop" data-close></div>
+    <div class="drawer-panel" role="dialog" aria-modal="true" id="drawer-panel"></div>
+  </aside>
+
+  <div class="toast" id="toast" hidden></div>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
