@@ -45,11 +45,14 @@ function packageManager(pkg, locks) {
   if (declared?.[1] === 'pnpm' || locks.pnpm) {
     return { name: 'pnpm', cache: 'pnpm', pnpm: true, setup: [], install: 'pnpm install --frozen-lockfile', run: (s) => `pnpm ${s}` };
   }
+  // `npm install` e não `npm ci`: dependências opcionais wasm (@emnapi, via unrs-resolver do Next)
+  // não ficam registradas no lock, e o `npm ci` reprova mesmo com o projeto certo. As versões
+  // continuam vindo do lock. Mesmo caso documentado no CI do Tempus.
   return {
     name: 'npm',
     cache: locks.npm ? 'npm' : null,
     setup: [],
-    install: locks.npm ? 'npm ci' : 'npm install --no-audit --no-fund',
+    install: 'npm install --no-audit --no-fund',
     run: (s) => `npm run ${s}`,
   };
 }

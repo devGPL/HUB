@@ -567,6 +567,8 @@ main { max-width: 1360px; margin: 0 auto; padding: 28px 28px 64px; display: grid
 .btn.mini { height: 28px; padding: 0 10px; font-size: 10.5px; gap: 6px; }
 .btn.mini .ic { width: 13px; height: 13px; }
 .cell.warn { color: var(--warn); background: var(--warn-soft); }
+.cell.transit { background: transparent; outline: 1px dashed rgba(182, 255, 59, 0.55); outline-offset: -1px; }
+.ck.transit { background: transparent; border-style: dashed; }
 .ck.warn { color: var(--warn); border-color: rgba(255, 181, 71, 0.35); background: var(--warn-soft); }
 .check-row { grid-template-columns: 28px 1fr auto; }
 .check-action { align-self: center; }

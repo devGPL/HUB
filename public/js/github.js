@@ -52,20 +52,31 @@ function repoFragment(repo) {
     }
     mainWorkflows: object(expression: "main:.github/workflows") { ${WORKFLOWS} }
     headWorkflows: object(expression: "HEAD:.github/workflows") { ${WORKFLOWS} }
+    devWorkflows: object(expression: "dev:.github/workflows") { ${WORKFLOWS} }
+    developWorkflows: object(expression: "develop:.github/workflows") { ${WORKFLOWS} }
     ${logo}
   `;
 }
 
 function mergeWorkflows(raw) {
-  // Workflows de release e sync rodam a partir da main, mas a branch padrão pode ser dev ou develop:
-  // junta os dois lados, priorizando a main quando o mesmo arquivo existe em ambos.
+  // Junta os workflows da branch de integração (dev/develop), da branch padrão e da main.
+  // As correções do HUB entram pela dev, então um workflow pode existir só lá até a próxima release.
+  // Quando o mesmo arquivo existe em mais de um lugar, vale o conteúdo da main.
   const byName = new Map();
-  for (const tree of [raw.headWorkflows, raw.mainWorkflows]) {
+  const sources = [
+    [raw.devWorkflows, 'dev'],
+    [raw.developWorkflows, 'dev'],
+    [raw.headWorkflows, 'main'],
+    [raw.mainWorkflows, 'main'],
+  ];
+  for (const [tree, source] of sources) {
     for (const e of tree?.entries ?? []) {
-      if (/\.ya?ml$/.test(e.name)) byName.set(e.name, e.object?.text ?? '');
+      if (!/\.ya?ml$/.test(e.name)) continue;
+      const prev = byName.get(e.name);
+      byName.set(e.name, { name: e.name, text: e.object?.text ?? '', inMain: Boolean(prev?.inMain) || source === 'main' });
     }
   }
-  return [...byName].map(([name, text]) => ({ name, text }));
+  return [...byName.values()];
 }
 
 function runCheck(check, workflows, entry) {
@@ -82,7 +93,9 @@ function runCheck(check, workflows, entry) {
   const replaces = fix?.replaces
     ? hits.filter((w) => new RegExp(fix.replaces, 'i').test(w.name) && w.name !== fixFile).map((w) => w.name)
     : [];
-  return { id: check.id, ok, outdated, keepOwn, files: hits.map((w) => w.name), replaces };
+  // Já está na dev, mas ainda não chegou na main nem na branch padrão: chega com a próxima release.
+  const inTransit = ok && !hits.some((w) => w.inMain);
+  return { id: check.id, ok, outdated, inTransit, keepOwn, files: hits.map((w) => w.name), replaces };
 }
 
 // S: tudo, inclusive opcionais. A: todos os obrigatórios. B, C, D: 1, 2, 3+ obrigatórios faltando.

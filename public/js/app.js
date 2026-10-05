@@ -107,6 +107,7 @@ function hpBar(repo) {
 // Estado visual de um check: ok, desatualizado, faltando (obrigatório) ou ausente (opcional).
 function checkState(def, res) {
   if (res.ok && res.outdated) return { cls: 'warn', icon: icons.alert(), hint: 'Fora do modelo atual do HUB' };
+  if (res.ok && res.inTransit) return { cls: 'ok transit', icon: icons.check(), hint: 'Já está na dev; chega na main com a próxima release' };
   if (res.ok) return { cls: 'ok', icon: icons.check(), hint: def.description };
   if (def.required) return { cls: 'bad', icon: icons.cross(), hint: def.description };
   return { cls: 'off', icon: icons.dash(), hint: `${def.description} (opcional)` };
@@ -292,6 +293,7 @@ function renderDrawer() {
       const files = res.files.map((f) => `<code>${esc(f)}</code>`).join(' ');
       let detail = res.ok ? files : esc(def.description);
       if (res.outdated) detail = `${files}<br>Fora do modelo atual do HUB.`;
+      else if (res.inTransit) detail = `${files}<br>Já está na dev. Chega na main com a próxima release.`;
 
       let action = '';
       const openPr = fixPrFor(r, def);

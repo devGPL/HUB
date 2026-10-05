@@ -87,7 +87,7 @@ npm run snapshot
   - `tile`: fundo do ícone, `dark` ou `light`, conforme a logo.
   - Sem `logo`, aparece a inicial do projeto.
 - `staleBranchDays`: dias sem commit para considerar uma branch parada.
-- `checks`: padrões verificados. Cada um casa por nome de arquivo (`fileName`) e/ou conteúdo (`content`) dos workflows em `.github/workflows`, lidos da `main` e da branch padrão. Com `required: false` aparece na matriz, mas não conta como pendência.
+- `checks`: padrões verificados. Cada um casa por nome de arquivo (`fileName`) e/ou conteúdo (`content`) dos workflows em `.github/workflows`, lidos da `main`, da branch padrão e da `dev`/`develop`. Com `required: false` aparece na matriz, mas não conta como pendência.
 
 As logos são baixadas com o token, recortadas e guardadas no `localStorage`; só são baixadas de novo quando o arquivo muda no repositório.
 
