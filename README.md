@@ -98,6 +98,31 @@ node scripts/digest.mjs --print
 
 O GitHub desativa agendamentos de repositórios públicos depois de 60 dias sem atividade no repo. Se o resumo parar de chegar, reative em *Actions > Resumo diário*.
 
+## Limpeza de branches paradas
+
+No painel de cada repositório, em *Branches de trabalho*, o botão **Limpar paradas** lista as branches sem commit há mais de `staleBranchDays` dias e sem PR aberta. Nunca aparecem `main`, `dev`, `develop`, a branch padrão e o que casar com `cleanup.keep` (por padrão, branches do release-please e `gh-pages`).
+
+Antes de oferecer, o HUB compara cada branch com a branch de integração e procura a última PR dela:
+
+| Situação | Vem marcada |
+| --- | --- |
+| Tudo já está na dev | Sim |
+| PR mesclada na dev ou na main (cobre squash merge) | Sim |
+| PR mesclada em outra branch | Não |
+| PR mesclada, mas com commit depois do merge | Não |
+| PR fechada sem merge | Não |
+| Commits fora da dev e sem PR | Não |
+
+A exclusão pede confirmação, mostra um botão **Desfazer** logo depois (recria cada branch no mesmo commit) e manda um aviso no canal de manutenção com quem excluiu e o commit de cada branch, para dar para restaurar depois com `git push origin <commit>:refs/heads/<branch>`.
+
+O aviso passa pelo workflow `.github/workflows/maintenance.yml`, disparado pelo HUB via `repository_dispatch`, porque o webhook não pode ficar no navegador. Ele precisa da secret `DISCORD_MAINTENANCE_WEBHOOK_URL` neste repositório, e o token de quem usa o HUB precisa de escrita em `Contents` no repositório do HUB. O script valida o evento (repositório monitorado, nome de branch e commit em formato estrito) e pega o autor do próprio GitHub.
+
+Para ver a análise sem apagar nada:
+
+```bash
+node scripts/cleanup-plan.mjs [repo]
+```
+
 ## Rodando local
 
 Pré-requisitos: Node 20+ e GitHub CLI logado (`gh auth login`).

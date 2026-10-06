@@ -52,7 +52,7 @@ function repoFragment(repo) {
     defaultBranchRef { name }
     refs(refPrefix: "refs/heads/", first: 100) {
       totalCount
-      nodes { name target { ... on Commit { committedDate author { name user { login } } } } }
+      nodes { name target { ... on Commit { oid committedDate author { name user { login } } } } }
     }
     pullRequests(states: OPEN, first: 50, orderBy: { field: CREATED_AT, direction: DESC }) {
       totalCount
@@ -134,6 +134,7 @@ function shapeRepo(raw, entry, config) {
       const lastCommit = b.target?.committedDate ?? null;
       return {
         name: b.name,
+        sha: b.target?.oid ?? null,
         lastCommit,
         author: b.target?.author?.user?.login ?? b.target?.author?.name ?? null,
         protected: PROTECTED.has(b.name),
@@ -221,6 +222,8 @@ export async function collect(token, config) {
     org: config.org,
     staleBranchDays: config.staleBranchDays,
     digest: config.digest ?? null,
+    hubRepo: config.hubRepo ?? 'HUB',
+    cleanup: config.cleanup ?? null,
     checks: config.checks.map(({ id, label, description, required, fix }) => ({ id, label, description, required, fix: fix ?? null })),
     repos,
     missing,
@@ -318,6 +321,41 @@ export async function failedWorkflowRuns(token, org, repo, branch, headSha, even
   return [...latest.values()]
     .filter((run) => RUN_FAILED.has(run.conclusion))
     .map((run) => ({ workflow: run.name, url: run.html_url, at: run.updated_at }));
+}
+
+/* ---------- Branches: análise, exclusão e restauração ---------- */
+
+/** Quantos commits da branch não estão na base (0 = tudo já está na base). */
+export async function commitsAhead(token, org, repo, base, head) {
+  const r = await rest(token, 'GET', `/repos/${org}/${repo}/compare/${encodeURIComponent(base)}...${encodeURIComponent(head)}`);
+  return r.ahead_by;
+}
+
+/** Última PR (mesclada ou fechada) de cada branch, numa única consulta GraphQL. */
+export async function lastPrByBranch(token, org, repo, names) {
+  if (!names.length) return new Map();
+  const fields = names
+    .map(
+      (n, i) => `b${i}: pullRequests(headRefName: ${JSON.stringify(n)}, states: [MERGED, CLOSED], first: 1, orderBy: { field: UPDATED_AT, direction: DESC }) {
+        nodes { number url state mergedAt closedAt baseRefName }
+      }`,
+    )
+    .join('\n');
+  const { data } = await graphql(token, `{ repository(owner: "${org}", name: "${repo}") { ${fields} } }`);
+  return new Map(names.map((n, i) => [n, data?.repository?.[`b${i}`]?.nodes[0] ?? null]));
+}
+
+export function deleteBranch(token, org, repo, name) {
+  return rest(token, 'DELETE', `/repos/${org}/${repo}/git/refs/heads/${encodePath(name)}`);
+}
+
+export function restoreBranch(token, org, repo, name, sha) {
+  return rest(token, 'POST', `/repos/${org}/${repo}/git/refs`, { ref: `refs/heads/${name}`, sha });
+}
+
+/** Dispara um evento no repositório do HUB (o workflow de lá avisa o Discord com o webhook guardado em secret). */
+export function dispatchEvent(token, org, repo, eventType, payload) {
+  return rest(token, 'POST', `/repos/${org}/${repo}/dispatches`, { event_type: eventType, client_payload: payload });
 }
 
 export async function fetchRaw(token, org, repo, path) {

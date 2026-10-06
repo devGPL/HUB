@@ -1,5 +1,6 @@
 import { AuthError, collect, findOpenPr, openFixPr, whoami } from './github.js';
 import { buildPlan, COMBINED_BRANCH, planBody } from './fixes.js';
+import { analyzeBranches, cleanupCandidates, deleteMany, notifyMaintenance, restoreMany } from './cleanup.js';
 import { logoUrl } from './logos.js';
 import { icons } from './icons.js';
 
@@ -20,6 +21,7 @@ const state = {
   branchFilter: 'all',
   loading: false,
   fix: null,
+  cleanup: null,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -350,7 +352,7 @@ function renderDrawer() {
         <div class="panel">${r.pullRequests.length ? r.pullRequests.map((p) => prRow(p, false)).join('') : '<div class="empty">Nenhuma PR aberta.</div>'}</div>
       </section>
       <section class="d-section"><h3>Branches de trabalho <span class="count">${work.length || ''}</span></h3>
-        <div class="branch-tools">${bchip('all', `Todas ${work.length}`)}${bchip('stale', `Paradas ${r.staleBranchCount}`)}${bchip('pr', 'Com PR')}</div>
+        <div class="branch-tools">${bchip('all', `Todas ${work.length}`)}${bchip('stale', `Paradas ${r.staleBranchCount}`)}${bchip('pr', 'Com PR')}${cleanupButton(r)}</div>
         ${branches}
       </section>
     </div>`;
@@ -534,6 +536,168 @@ function renderFix() {
     <div class="m-foot"><button class="btn ghost" type="button" data-fix-close ${fix.running ? 'disabled' : ''}>${finished ? 'Fechar' : 'Cancelar'}</button>${go}</div>`;
 }
 
+/* ---------- Limpeza de branches ---------- */
+
+const CLEANUP_STATUS = {
+  merged: (b) => ({ cls: 'ok', text: `Tudo na ${b.base}` }),
+  'pr-merged': (b) => ({ cls: 'ok', text: `PR #${b.pr.number} mesclada` }),
+  'other-base': (b) => ({ cls: 'warn', text: `PR #${b.pr.number} mesclada em ${b.pr.baseRefName}` }),
+  'after-merge': () => ({ cls: 'warn', text: 'Commit depois do merge' }),
+  'pr-closed': (b) => ({ cls: 'warn', text: `PR #${b.pr.number} fechada sem merge` }),
+  unmerged: (b) => ({ cls: 'bad', text: b.ahead == null ? 'Sem comparação' : `${b.ahead} commit${b.ahead > 1 ? 's' : ''} fora da ${b.base}` }),
+};
+
+function cleanupButton(repo) {
+  const n = cleanupCandidates(repo, state.data.cleanup).length;
+  if (!n) return '';
+  if (!repo.canWrite) return `<span class="badge mute" title="Precisa de escrita no repositório">Limpeza sem permissão</span>`;
+  return `<button class="btn mini danger-ghost" type="button" data-cleanup>${icons.trash()}Limpar paradas (${n})</button>`;
+}
+
+function openCleanup() {
+  const repo = findRepo(state.openRepo);
+  const c = { repo: repo.name, status: 'loading', items: [], selected: new Set(), results: [], notified: null, error: null };
+  state.cleanup = c;
+  $('cleanup').classList.add('open');
+  renderCleanup();
+  analyzeBranches(state.token, state.data.org, repo, state.data.cleanup)
+    .then((items) => {
+      if (state.cleanup !== c) return;
+      c.items = items;
+      c.selected = new Set(items.filter((b) => b.safe).map((b) => b.name));
+      c.status = 'ready';
+    })
+    .catch((err) => Object.assign(c, { status: 'error', error: esc(err.message) }))
+    .finally(renderCleanup);
+}
+
+function closeCleanup() {
+  const c = state.cleanup;
+  if (!c || ['deleting', 'restoring'].includes(c.status)) return;
+  const changed = ['done', 'restored'].includes(c.status);
+  state.cleanup = null;
+  $('cleanup').classList.remove('open');
+  if (changed) refresh();
+}
+
+async function runCleanup() {
+  const c = state.cleanup;
+  const repo = findRepo(c.repo);
+  const targets = c.items.filter((b) => c.selected.has(b.name));
+  c.status = 'deleting';
+  renderCleanup();
+  c.results = await deleteMany(state.token, state.data.org, repo.name, targets);
+  const deleted = c.results.filter((x) => x.ok);
+  c.notified = deleted.length
+    ? await notifyMaintenance(state.token, state.data, { kind: 'branches-deleted', repo: repo.name, branches: deleted.map(({ name, sha }) => ({ name, sha })) })
+    : null;
+  c.status = 'done';
+  if (deleted.length) toast(`${deleted.length} branch${deleted.length > 1 ? 'es excluídas' : ' excluída'} em ${repo.label}`, 'ok');
+  if (state.cleanup === c) renderCleanup();
+}
+
+async function undoCleanup() {
+  const c = state.cleanup;
+  const repo = findRepo(c.repo);
+  const deleted = c.results.filter((x) => x.ok);
+  c.status = 'restoring';
+  renderCleanup();
+  c.restored = await restoreMany(state.token, state.data.org, repo.name, deleted);
+  const back = c.restored.filter((x) => x.ok);
+  c.notified = back.length
+    ? await notifyMaintenance(state.token, state.data, { kind: 'branches-restored', repo: repo.name, branches: back.map(({ name, sha }) => ({ name, sha })) })
+    : null;
+  c.status = 'restored';
+  if (back.length) toast(`${back.length} branch${back.length > 1 ? 'es restauradas' : ' restaurada'} em ${repo.label}`, 'ok');
+  if (state.cleanup === c) renderCleanup();
+}
+
+function deleteError(r) {
+  if (r.status === 403 || r.status === 422) return 'Sem permissão ou branch protegida por regra do repositório.';
+  return esc(r.error);
+}
+
+function renderCleanup() {
+  const c = state.cleanup;
+  if (!c) return;
+  const repo = findRepo(c.repo);
+  const selected = c.items.filter((b) => c.selected.has(b.name));
+  const risky = selected.filter((b) => !b.safe);
+  const busy = ['deleting', 'restoring'].includes(c.status);
+
+  let body;
+  if (c.status === 'loading') {
+    body = `<div class="empty"><b>Analisando branches</b>Comparando cada branch parada com a <code>${esc(repo.integrationBranch)}</code> e procurando as PRs de cada uma.</div>`;
+  } else if (c.status === 'error') {
+    body = `<div class="alert bad">${icons.alert()}<div><b>Não deu para analisar</b>${c.error}</div></div>`;
+  } else if (!c.items.length) {
+    body = '<div class="empty"><b>Nada para limpar</b>Nenhuma branch parada sem PR aberta neste repositório.</div>';
+  } else {
+    const resultFor = (name) => (c.status === 'restored' ? c.restored : c.results).find((x) => x.name === name);
+    const rows = c.items
+      .map((b, i) => {
+        const s = CLEANUP_STATUS[b.status](b);
+        const res = ['done', 'restored'].includes(c.status) && c.selected.has(b.name) ? resultFor(b.name) : null;
+        const outcome = res
+          ? res.ok
+            ? `<span class="badge ${c.status === 'restored' ? 'ok' : 'mute'}">${c.status === 'restored' ? 'Restaurada' : 'Excluída'}</span>`
+            : `<span class="badge bad" title="${esc(res.error)}">Falhou</span>`
+          : `<span class="badge ${s.cls}">${esc(s.text)}</span>`;
+        return `<label class="cl-row ${res?.ok && c.status === 'done' ? 'gone' : ''}" for="cl-${i}">
+          <input type="checkbox" id="cl-${i}" data-cl="${esc(b.name)}" ${c.selected.has(b.name) ? 'checked' : ''} ${c.status === 'ready' || c.status === 'confirm' ? '' : 'disabled'} />
+          <span class="cl-main">
+            <span class="cl-name">${esc(b.name)}</span>
+            <span class="cl-meta">${esc(b.author ?? 'sem autor')} · último commit ${ago(b.lastCommit)}${b.pr ? ` · ${ext(b.pr.url, `PR #${b.pr.number}`)}` : ''}</span>
+          </span>
+          ${outcome}
+        </label>`;
+      })
+      .join('');
+
+    const alerts = [];
+    if (c.status === 'confirm') {
+      alerts.push(`<div class="alert bad">${icons.alert()}<div><b>Confirme a exclusão</b>${selected.length} branch${selected.length > 1 ? 'es' : ''} de ${esc(repo.label)} ${selected.length > 1 ? 'serão excluídas' : 'será excluída'} no GitHub. Logo depois dá para desfazer, e o commit de cada uma fica registrado no #hub-manutencao.</div></div>`);
+    }
+    if (risky.length && ['ready', 'confirm'].includes(c.status)) {
+      alerts.push(`<div class="alert warn">${icons.alert()}<div><b>${risky.length} selecionada${risky.length > 1 ? 's têm' : ' tem'} trabalho fora da ${esc(repo.integrationBranch)}</b>Confira antes: esses commits só existem nessa branch.</div></div>`);
+    }
+    if (c.status === 'done' || c.status === 'restored') {
+      const list = c.status === 'done' ? c.results : c.restored;
+      const ok = list.filter((x) => x.ok).length;
+      const failed = list.filter((x) => !x.ok);
+      const verb = c.status === 'done' ? 'excluída' : 'restaurada';
+      alerts.push(`<div class="alert ${failed.length ? 'warn' : 'ok'}">${failed.length ? icons.alert() : icons.check()}<div><b>${ok} ${verb}${ok === 1 ? '' : 's'}${failed.length ? `, ${failed.length} com falha` : ''}</b>${failed.map((f) => `<code>${esc(f.name)}</code>: ${deleteError(f)}`).join('<br>')}</div></div>`);
+      if (c.notified === true) alerts.push(`<div class="alert info">${icons.check()}<div><b>Aviso enviado</b>O registro vai aparecer no #hub-manutencao em instantes.</div></div>`);
+      if (c.notified === false) alerts.push(`<div class="alert warn">${icons.alert()}<div><b>Sem aviso no Discord</b>A operação foi feita, mas o aviso no #hub-manutencao não foi disparado. O token precisa de escrita em <code>Contents</code> no repositório do HUB.</div></div>`);
+    }
+
+    body = `<p class="lead">Branches paradas há mais de ${state.data.staleBranchDays} dias e sem PR aberta. As seguras já vêm marcadas.</p>
+      ${c.status === 'ready' ? `<div class="cl-tools"><button class="chip" type="button" data-cl-safe>Só as seguras</button><button class="chip" type="button" data-cl-none>Limpar seleção</button><span class="cl-count">${selected.length} de ${c.items.length} selecionadas</span></div>` : ''}
+      ${alerts.join('')}
+      <div class="cl-list">${rows}</div>`;
+  }
+
+  let footer = `<button class="btn ghost" type="button" data-cleanup-close>Cancelar</button>`;
+  if (c.status === 'ready') {
+    footer += `<button class="btn danger" type="button" data-cl-go ${selected.length ? '' : 'disabled'}>${icons.trash()}Excluir ${selected.length} branch${selected.length === 1 ? '' : 'es'}</button>`;
+  } else if (c.status === 'confirm') {
+    footer = `<button class="btn ghost" type="button" data-cl-back>Voltar</button><button class="btn danger" type="button" data-cl-confirm>${icons.trash()}Confirmar exclusão de ${selected.length}</button>`;
+  } else if (busy) {
+    footer = `<button class="btn ghost" type="button" disabled>${icons.refresh()}${c.status === 'deleting' ? 'Excluindo' : 'Restaurando'}</button>`;
+  } else if (c.status === 'done') {
+    const any = c.results.some((x) => x.ok);
+    footer = `${any ? `<button class="btn" type="button" data-cl-undo>${icons.refresh()}Desfazer</button>` : ''}<button class="btn primary" type="button" data-cleanup-close>Fechar</button>`;
+  } else if (c.status === 'restored') {
+    footer = `<button class="btn primary" type="button" data-cleanup-close>Fechar</button>`;
+  }
+
+  $('cleanup-panel').innerHTML = `
+    <div class="m-head">${avatar(repo, 'sm')}<div><span class="eyebrow">Limpeza de branches</span><h2>${esc(repo.label)}</h2></div>
+      <button class="icon-btn" type="button" data-cleanup-close aria-label="Fechar" ${busy ? 'disabled' : ''}>${icons.close()}</button></div>
+    <div class="m-body">${body}</div>
+    <div class="m-foot">${footer}</div>`;
+}
+
 function render() {
   if (!state.data) return;
   renderStats();
@@ -702,7 +866,31 @@ document.addEventListener('click', (e) => {
       .map((r) => jobFor(r.name, pendingFixes(r).map((d) => d.id)));
     openFix(jobs);
   }
-  if (e.target.closest('[data-fix-close]') || e.target.matches('.fix-backdrop')) closeFix();
+  if ((e.target.closest('[data-fix-close]') || e.target.matches('#fix .fix-backdrop')) && state.fix) closeFix();
+
+  if (e.target.closest('[data-cleanup]')) openCleanup();
+  if (e.target.closest('[data-cleanup-close]') || e.target.matches('#cleanup .fix-backdrop')) closeCleanup();
+  const c = state.cleanup;
+  if (c) {
+    if (e.target.closest('[data-cl-safe]')) {
+      c.selected = new Set(c.items.filter((b) => b.safe).map((b) => b.name));
+      renderCleanup();
+    }
+    if (e.target.closest('[data-cl-none]')) {
+      c.selected = new Set();
+      renderCleanup();
+    }
+    if (e.target.closest('[data-cl-go]')) {
+      c.status = 'confirm';
+      renderCleanup();
+    }
+    if (e.target.closest('[data-cl-back]')) {
+      c.status = 'ready';
+      renderCleanup();
+    }
+    if (e.target.closest('[data-cl-confirm]')) runCleanup();
+    if (e.target.closest('[data-cl-undo]')) undoCleanup();
+  }
   if (e.target.closest('#fix-go')) runFix();
   const bf = e.target.closest('[data-bfilter]');
   if (bf) {
@@ -710,9 +898,19 @@ document.addEventListener('click', (e) => {
     renderDrawer();
   }
 });
+document.addEventListener('change', (e) => {
+  const box = e.target.closest('[data-cl]');
+  const c = state.cleanup;
+  if (!box || !c || c.status !== 'ready') return;
+  if (box.checked) c.selected.add(box.dataset.cl);
+  else c.selected.delete(box.dataset.cl);
+  renderCleanup();
+});
+
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
-  if (state.fix) closeFix();
+  if (state.cleanup) closeCleanup();
+  else if (state.fix) closeFix();
   else closeDrawer();
 });
 

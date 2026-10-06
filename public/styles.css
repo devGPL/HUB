@@ -645,6 +645,38 @@ main { max-width: 1360px; margin: 0 auto; padding: 28px 28px 64px; display: grid
 .job-main .checks { margin-top: 4px; }
 .job-error { margin: 6px 0 0; color: var(--bad); font-size: 12px; }
 
+/* ---------- Limpeza de branches ---------- */
+.btn.danger { background: var(--bad); border-color: var(--bad); color: #1a0006; }
+.btn.danger:hover { background: #ff7088; color: #1a0006; }
+.btn.danger-ghost { background: transparent; border-color: rgba(255, 79, 109, 0.5); color: var(--bad); }
+.btn.danger-ghost:hover { border-color: var(--bad); color: var(--bad); background: var(--bad-soft); }
+.branch-tools { flex-wrap: wrap; align-items: center; }
+.branch-tools .btn { margin-left: auto; }
+.alert.warn { border-color: var(--warn); background: var(--warn-soft); }
+.alert.warn .ic { color: var(--warn); }
+
+.cl-tools { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.cl-count { margin-left: auto; color: var(--muted); font: 12px var(--font-mono); }
+.cl-list { display: grid; border: 1px solid var(--line); background: var(--panel); }
+.cl-row {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+}
+.cl-row:last-child { border-bottom: 0; }
+.cl-row:hover { background: var(--panel-2); }
+.cl-row input { width: 16px; height: 16px; margin: 0; accent-color: var(--bad); cursor: pointer; }
+.cl-row input:disabled { cursor: default; }
+.cl-main { display: grid; min-width: 0; }
+.cl-name { font: 12.5px var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cl-meta { color: var(--dim); font-size: 12px; }
+.cl-meta a { color: var(--cyan); }
+.cl-row.gone .cl-name { color: var(--dim); text-decoration: line-through; }
+
 .toast {
   position: fixed;
   right: 20px;

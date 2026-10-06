@@ -1,6 +1,11 @@
 {
   "org": "devGPL",
   "staleBranchDays": 30,
+  "hubRepo": "HUB",
+  "cleanup": {
+    "keep": "^release-please--|^gh-pages$",
+    "note": "Branches que nunca aparecem na limpeza (regex sobre o nome), além de main, dev, develop e a branch padrão."
+  },
   "digest": {
     "hubUrl": "https://devgpl.github.io/HUB/",
     "stalePrDays": 3,

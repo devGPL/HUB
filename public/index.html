@@ -27,7 +27,7 @@
         <li>
           <span class="n">01</span>
           <div>Crie um <b>fine-grained token</b> com dono <code>devGPL</code>, acesso a <b>todos os repositórios</b> e permissões de leitura em <code>Contents</code>, <code>Pull requests</code> e <code>Metadata</code>.
-            Para usar o botão <b>Corrigir</b>, dê escrita em <code>Contents</code>, <code>Pull requests</code> e <code>Workflows</code>.
+            Para usar <b>Corrigir</b> e <b>Limpar branches</b>, dê escrita em <code>Contents</code>, <code>Pull requests</code> e <code>Workflows</code>, e inclua o repositório <code>HUB</code> para os avisos no Discord.
             <a class="link" href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">Criar token no GitHub</a>
           </div>
         </li>
@@ -120,6 +120,11 @@
   <div class="fix" id="fix">
     <div class="fix-backdrop"></div>
     <div class="fix-panel cut" role="dialog" aria-modal="true" id="fix-panel"></div>
+  </div>
+
+  <div class="fix" id="cleanup">
+    <div class="fix-backdrop"></div>
+    <div class="fix-panel cut" role="dialog" aria-modal="true" id="cleanup-panel"></div>
   </div>
 
   <div class="toast" id="toast" hidden></div>

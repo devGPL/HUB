@@ -22,5 +22,6 @@ export const icons = {
   grid: () => svg('<path d="M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z"/>'),
   list: () => svg('<path d="M4 6h16M4 12h16M4 18h16"/>'),
   wrench: () => svg('<path d="M14.5 6.5a4 4 0 0 0 5 5l-8.5 8.5a2.1 2.1 0 0 1-3-3l8.5-8.5a4 4 0 0 1-2-2z"/><path d="M14.5 6.5l3-3 3 3-3 3"/>'),
+  trash: () => svg('<path d="M4.5 6.5h15M9.5 6.5V4h5v2.5M6.5 6.5l1 13.5h9l1-13.5M10 10v6.5M14 10v6.5"/>'),
   sliders: () => svg('<path d="M5 4v16M12 4v16M19 4v16"/><path d="M3 9h4M10 15h4M17 7h4"/>'),
 };

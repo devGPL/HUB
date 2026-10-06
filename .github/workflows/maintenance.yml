@@ -1,0 +1,32 @@
+name: Aviso de manutenção
+
+# Disparado pelo HUB (repository_dispatch) quando alguém exclui ou restaura branches.
+# Posta no canal de manutenção do Discord com o webhook guardado em secret, que o
+# navegador nunca vê.
+#
+# Secret neste repositório:
+#   - DISCORD_MAINTENANCE_WEBHOOK_URL : webhook do canal #hub-manutencao
+#
+# Atenção: este repositório é público, então os logs também são. O script não imprime
+# o conteúdo do evento; não adicione passos que imprimam.
+
+on:
+  repository_dispatch:
+    types: [hub-maintenance]
+
+permissions:
+  contents: read
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Avisar o Discord
+        env:
+          DISCORD_MAINTENANCE_WEBHOOK_URL: ${{ secrets.DISCORD_MAINTENANCE_WEBHOOK_URL }}
+          ACTOR: ${{ github.actor }}
+        run: node scripts/notify-maintenance.mjs
