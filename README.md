@@ -68,7 +68,20 @@ Repositório novo no monitoramento precisa dos dois também. O webhook nunca vai
 O workflow `.github/workflows/digest.yml` roda em dias úteis às 8h30 (Brasília) e manda para um canal próprio:
 
 - PRs abertas há `digest.stalePrDays` dias ou mais, com o status de cada uma (aguardando review, ajustes pedidos, CI falhou, conflito).
-- Falhas nas branches `main` e `dev`/`develop` (CI, deploy, release) e PRs com CI falhando, com o nome do check.
+- **Impedem o merge**: workflows de verificação falhando nas PRs abertas ou na branch de integração, e PRs com conflito.
+- **Podem dar problema depois**: release, sync, monitoramento e rotinas agendadas falhando na `main` ou na `dev`.
+
+As falhas vêm da API do GitHub Actions e só contam as execuções do commit atual de cada branch e PR: falha antiga, já superada por um commit novo, não aparece. Checks de fora do Actions (como o preview do Vercel) não entram.
+
+A classificação fica em `digest.failures` no `hub.config.json`, como regex sobre o nome do workflow:
+
+| Regra | Padrão | Efeito |
+| --- | --- | --- |
+| `ignore` | `vercel\|discord` | Nunca aparece |
+| `block` | `^ci$\|lint\|test\|typecheck\|build\|pr title\|commitlint` | Impede o merge; olhado nas PRs e na dev |
+| (resto) | | Pode dar problema depois; olhado na main e na dev |
+
+Workflow novo que não casa com nenhuma regra cai em "pode dar problema depois", para nada importante sumir sem ninguém decidir.
 - Repositórios fora do padrão, apontando a PR de correção quando houver.
 - Branches paradas por repositório.
 

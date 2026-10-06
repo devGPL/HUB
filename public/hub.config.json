@@ -4,7 +4,12 @@
   "digest": {
     "hubUrl": "https://devgpl.github.io/HUB/",
     "stalePrDays": 3,
-    "maxItems": 12
+    "maxItems": 12,
+    "failures": {
+      "ignore": "vercel|discord",
+      "block": "^ci$|lint|test|typecheck|build|pr title|commitlint",
+      "note": "Regex sem diferenciar maiúsculas, aplicada ao nome do workflow. ignore: nunca aparece. block: impede o merge (olhado nas PRs e na dev). O resto: pode dar problema depois (olhado na main e na dev)."
+    }
   },
   "repos": [
     { "name": "Tempus", "logo": { "path": "public/logo-tempus.png", "crop": [80, 56, 46, 74], "tile": "light" } },

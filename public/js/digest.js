@@ -4,13 +4,13 @@
 const COLORS = {
   header: 0xb6ff3b,
   prs: 0xffb547,
-  ci: 0xff4f6d,
+  block: 0xff4f6d,
+  risk: 0xffb547,
   branches: 0x38e1ff,
   standards: 0xffd84a,
 };
 
 const DAY = 86_400_000;
-const FAILING = new Set(['FAILURE', 'ERROR']);
 const EMBED_LIMIT = 3800; // o Discord aceita 4096 na descrição; sobra margem para o "e mais N"
 
 // Escapa o que o Discord interpretaria como markdown dentro de títulos de PR e nomes de branch.
@@ -31,9 +31,9 @@ function list(lines, max) {
   return out.join('\n');
 }
 
-function prStatus(pr) {
+function prStatus(pr, blockedPrs) {
   if (pr.mergeable === 'CONFLICTING') return 'conflito';
-  if (FAILING.has(pr.ci)) return 'CI falhou';
+  if (blockedPrs.has(pr.url)) return 'bloqueada por falha';
   if (pr.review === 'CHANGES_REQUESTED') return 'ajustes pedidos';
   if (pr.review === 'APPROVED') return 'aprovada, falta merge';
   return 'aguardando review';
@@ -50,10 +50,8 @@ export function digestData(data, now = Date.now()) {
     .filter((p) => age(p.createdAt, now) >= cfg.stalePrDays)
     .sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));
 
-  const brokenBranches = data.repos.flatMap((r) =>
-    r.branchHealth.filter((b) => FAILING.has(b.state)).map((b) => ({ repo: r.name, ...b })),
-  );
-  const brokenPrs = openPrs.filter((p) => FAILING.has(p.ci));
+  // Falhas já classificadas por failures.js: o que bloqueia o merge e o que é risco.
+  const failures = data.failures ?? { blocking: [], risks: [], blockedPrs: new Set() };
 
   const staleBranches = data.repos
     .filter((r) => r.staleBranchCount > 0)
@@ -68,7 +66,7 @@ export function digestData(data, now = Date.now()) {
     }))
     .filter((x) => x.missing.length);
 
-  return { cfg, label, openPrs, stalePrs, brokenBranches, brokenPrs, staleBranches, offStandard, repoCount: data.repos.length };
+  return { cfg, label, openPrs, stalePrs, failures, staleBranches, offStandard, repoCount: data.repos.length };
 }
 
 /** Payload pronto para o webhook do Discord. */
@@ -84,9 +82,9 @@ export function buildDigest(data, now = Date.now()) {
     month: '2-digit',
   }).format(now);
 
-  const ciCount = d.brokenBranches.length + d.brokenPrs.length;
+  const { blocking, risks, blockedPrs } = d.failures;
   const staleTotal = d.staleBranches.reduce((n, b) => n + b.count, 0);
-  const allClear = !d.stalePrs.length && !ciCount && !d.offStandard.length;
+  const allClear = !d.stalePrs.length && !blocking.length && !risks.length && !d.offStandard.length;
 
   const embeds = [
     {
@@ -99,7 +97,8 @@ export function buildDigest(data, now = Date.now()) {
       fields: [
         { name: 'PRs abertas', value: String(d.openPrs.length), inline: true },
         { name: `Esperando ${d.cfg.stalePrDays}+ dias`, value: String(d.stalePrs.length), inline: true },
-        { name: 'Falhas', value: String(ciCount), inline: true },
+        { name: 'Bloqueiam merge', value: String(blocking.length), inline: true },
+        { name: 'Riscos', value: String(risks.length), inline: true },
         { name: 'Branches paradas', value: String(staleTotal), inline: true },
         { name: 'Fora do padrão', value: String(d.offStandard.length), inline: true },
       ],
@@ -112,26 +111,32 @@ export function buildDigest(data, now = Date.now()) {
       color: COLORS.prs,
       description: list(
         d.stalePrs.map(
-          (p) => `${name(p.repo)} [#${p.number} ${md(p.title)}](${p.url}) · ${plural(age(p.createdAt, now), 'dia', 'dias')} · ${prStatus(p)}`,
+          (p) => `${name(p.repo)} [#${p.number} ${md(p.title)}](${p.url}) · ${plural(age(p.createdAt, now), 'dia', 'dias')} · ${prStatus(p, blockedPrs)}`,
         ),
         d.cfg.maxItems,
       ),
     });
   }
 
-  if (ciCount) {
+  const where = (f) => (f.pr ? `[#${f.pr.number} ${md(f.pr.title)}](${f.pr.url})` : `\`${f.branch}\``);
+  const failureLine = (f) =>
+    f.workflow === 'conflito de merge'
+      ? `${name(f.repo)} ${where(f)} · conflito de merge`
+      : `${name(f.repo)} ${where(f)} · ${md(f.workflow)} falhou · [ver execução](${f.url})`;
+
+  if (blocking.length) {
     embeds.push({
-      title: 'Falhas nas branches principais e PRs',
-      color: COLORS.ci,
-      description: list(
-        [
-          ...d.brokenBranches.map(
-            (b) => `${name(b.repo)} \`${b.branch}\` · ${md(b.failed.join(', ') || 'checks')} falhou · [ver commit](${b.url})`,
-          ),
-          ...d.brokenPrs.map((p) => `${name(p.repo)} [#${p.number} ${md(p.title)}](${p.url}) · CI falhou`),
-        ],
-        d.cfg.maxItems,
-      ),
+      title: 'Impedem o merge',
+      color: COLORS.block,
+      description: list(blocking.map(failureLine), d.cfg.maxItems),
+    });
+  }
+
+  if (risks.length) {
+    embeds.push({
+      title: 'Podem dar problema depois',
+      color: COLORS.risk,
+      description: list(risks.map(failureLine), d.cfg.maxItems),
     });
   }
 

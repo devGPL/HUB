@@ -9,6 +9,7 @@ import { execSync } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import { collect } from '../public/js/github.js';
 import { buildDigest } from '../public/js/digest.js';
+import { collectFailures } from '../public/js/failures.js';
 
 const print = process.argv.includes('--print');
 
@@ -26,6 +27,7 @@ if (data.missing.length) {
   console.warn(`Aviso: ${data.missing.length} repositório(s) sem acesso com este token.`);
 }
 
+data.failures = await collectFailures(token(), data);
 const payload = buildDigest(data);
 
 if (print) {

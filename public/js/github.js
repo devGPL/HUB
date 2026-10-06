@@ -3,7 +3,7 @@
 const API = 'https://api.github.com';
 const PROTECTED = new Set(['main', 'master', 'dev', 'develop']);
 const WORKFLOWS = `... on Tree { entries { name object { ... on Blob { text } } } }`;
-const BRANCH_STATUS = `name target { ... on Commit { url statusCheckRollup { state contexts(first: 30) { nodes {
+const BRANCH_STATUS = `name target { ... on Commit { oid url statusCheckRollup { state contexts(first: 30) { nodes {
   ... on CheckRun { name conclusion checkSuite { workflowRun { workflow { name } } } }
   ... on StatusContext { context state }
 } } } } }`;
@@ -58,7 +58,7 @@ function repoFragment(repo) {
       totalCount
       nodes {
         number title url isDraft createdAt updatedAt
-        baseRefName headRefName reviewDecision mergeable
+        baseRefName headRefName headRefOid reviewDecision mergeable
         author { login avatarUrl }
         reviewRequests(first: 10) { nodes { requestedReviewer { ... on User { login } ... on Team { name } } } }
         commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
@@ -166,6 +166,7 @@ function shapeRepo(raw, entry, config) {
         branch: ref.name,
         state: ref.target.statusCheckRollup?.state ?? null,
         failed: failedChecks(ref.target.statusCheckRollup),
+        sha: ref.target.oid,
         url: ref.target.url,
       })),
     permission: raw.viewerPermission,
@@ -187,6 +188,7 @@ function shapeRepo(raw, entry, config) {
       updatedAt: p.updatedAt,
       base: p.baseRefName,
       head: p.headRefName,
+      headSha: p.headRefOid,
       author: p.author?.login ?? 'ghost',
       avatar: p.author?.avatarUrl ?? null,
       review: p.reviewDecision,
@@ -297,6 +299,25 @@ export async function openFixPr(token, { org, repo, base, branch, files, deleteP
   }
 
   return rest(token, 'POST', `${r}/pulls`, { title, head: branch, base, body });
+}
+
+const RUN_FAILED = new Set(['failure', 'timed_out', 'startup_failure']);
+
+/**
+ * Workflows do Actions que falharam no commit atual de uma branch (última execução de cada um).
+ * Vem da API do Actions (e não do status do commit) porque ela traz o nome do workflow
+ * mesmo para token fine-grained, e não mistura checks de fora como o Vercel.
+ * Filtrar pelo commit atual evita reportar falhas antigas que já não refletem a branch.
+ */
+export async function failedWorkflowRuns(token, org, repo, branch, headSha, event) {
+  const params = new URLSearchParams({ branch, head_sha: headSha, per_page: '50', status: 'completed' });
+  if (event) params.set('event', event);
+  const { workflow_runs: runs } = await rest(token, 'GET', `/repos/${org}/${repo}/actions/runs?${params}`);
+  const latest = new Map();
+  for (const run of runs) if (!latest.has(run.workflow_id)) latest.set(run.workflow_id, run);
+  return [...latest.values()]
+    .filter((run) => RUN_FAILED.has(run.conclusion))
+    .map((run) => ({ workflow: run.name, url: run.html_url, at: run.updated_at }));
 }
 
 export async function fetchRaw(token, org, repo, path) {
