@@ -35,6 +35,25 @@
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
 
+/* Scrollbars no tema: finas, quadradas, grafite em repouso e verde no hover.
+   Chrome, Edge e Safari usam os pseudo-elementos; o Firefox, as propriedades padrão. */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--line-2) padding-box;
+  border: 2px solid transparent;
+  border-radius: 0;
+}
+::-webkit-scrollbar-thumb:hover { background: var(--acc) padding-box; }
+::-webkit-scrollbar-thumb:active { background: #c9ff6b padding-box; }
+::-webkit-scrollbar-corner { background: transparent; }
+::-webkit-scrollbar-button { display: none; }
+html::-webkit-scrollbar-track { background: var(--bg-2); border-left: 1px solid var(--line); }
+@supports (-moz-appearance: none) {
+  * { scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; }
+  html { scrollbar-color: var(--line-2) var(--bg-2); }
+}
+
 html { color-scheme: dark; }
 body {
   margin: 0;
