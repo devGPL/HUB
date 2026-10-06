@@ -248,7 +248,62 @@ export async function buildPlan(token, org, repo, defs) {
   };
 }
 
+/* ---------- Levar para a main ---------- */
+// Padrão que já está na dev mas ainda não na main: PRs abertas direto para a main
+// (hotfix, docs, release) não rodam o workflow. Copia os mesmos arquivos da dev para a main.
+
+export const PROMOTE_BRANCH = 'chore/hub-main';
+
+const PROMOTE_EXTRAS = { 'release-please': ['release-please-config.json', '.release-please-manifest.json'] };
+
+export async function buildPromotePlan(token, org, repo, defs) {
+  const from = repo.integrationBranch;
+  const onDev = repoContext(token, org, repo.name, from);
+  const onMain = repoContext(token, org, repo.name, 'main');
+
+  const parts = await Promise.all(
+    defs.map(async (def) => {
+      const res = repo.checks.find((c) => c.id === def.id);
+      const paths = [...res.files.map((f) => `.github/workflows/${f}`), ...(PROMOTE_EXTRAS[def.id] ?? [])];
+      const files = [];
+      for (const path of paths) {
+        const [dev, main] = await Promise.all([onDev.read(path), onMain.read(path)]);
+        if (dev != null && main == null) files.push({ path, content: dev });
+      }
+      return files.length
+        ? { def, ok: true, files, remove: [], notes: [`Mesmo conteúdo que já está na ${from}.`] }
+        : { def, ok: false, error: 'Nada para levar: o arquivo já está na main ou não está na dev.', files: [], remove: [], notes: [] };
+    }),
+  );
+
+  const ready = parts.filter((p) => p.ok);
+  const single = defs.length === 1;
+  return {
+    repo,
+    base: 'main',
+    parts,
+    files: ready.flatMap((p) => p.files),
+    remove: [],
+    branch: single ? `${PROMOTE_BRANCH}-${defs[0].id}` : PROMOTE_BRANCH,
+    title: single ? `ci: leva ${defs[0].label} para a main` : 'ci: leva workflows do padrão para a main',
+    promote: true,
+  };
+}
+
 export function planBody(plan) {
+  if (plan.promote) {
+    const files = plan.files.map((f) => `- \`${f.path}\``).join('\n');
+    return [
+      '## Manutenção',
+      '',
+      `Aberta pelo [GPL HUB](https://devgpl.github.io/HUB/). Estes arquivos já estão na \`${plan.repo.integrationBranch}\`, mas ainda não chegaram na \`main\`.`,
+      'Sem eles na main, PRs abertas direto para a main (hotfix, docs, release) não rodam esses workflows.',
+      '',
+      files,
+      '',
+      'O conteúdo é idêntico ao da dev, então o próximo sync entre as branches não gera conflito.',
+    ].join('\n');
+  }
   const lines = ['## Manutenção', '', 'Aberta pelo [GPL HUB](https://devgpl.github.io/HUB/) para alinhar o repositório ao padrão.', ''];
   for (const p of plan.parts.filter((x) => x.ok)) {
     lines.push(`### ${p.def.label}`, '');

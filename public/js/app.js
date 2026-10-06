@@ -1,6 +1,6 @@
 import { AuthError, collect, findOpenPr, getText, listOrgRepos, logoCandidates, openFixPr, repoPermissions, whoami } from './github.js';
 import { addRepo, removeRepo } from './config-edit.js';
-import { buildPlan, COMBINED_BRANCH, planBody } from './fixes.js';
+import { buildPlan, buildPromotePlan, COMBINED_BRANCH, planBody, PROMOTE_BRANCH } from './fixes.js';
 import { analyzeBranches, cleanupCandidates, deleteMany, notifyMaintenance, restoreMany } from './cleanup.js';
 import { logoUrl, previewLogo } from './logos.js';
 import { icons } from './icons.js';
@@ -120,6 +120,18 @@ function checkState(def, res) {
 // PR de correção já aberta para este check: a específica dele ou a combinada do repo.
 const fixPrFor = (repo, def) =>
   def.fix && repo.pullRequests.find((p) => p.head === def.fix.branch || p.head === COMBINED_BRANCH);
+
+// PR aberta levando este padrão da dev para a main.
+const promotePrFor = (repo, def) =>
+  repo.pullRequests.find((p) => p.head === `${PROMOTE_BRANCH}-${def.id}` || p.head === PROMOTE_BRANCH);
+
+// Padrões que estão só na dev (tracejados) e ainda sem PR para a main.
+function pendingPromotes(repo) {
+  return state.data.checks.filter((def) => {
+    const res = repo.checks.find((c) => c.id === def.id);
+    return res.inTransit && !res.keepOwn && !promotePrFor(repo, def);
+  });
+}
 
 // Checks com correção automática que estão faltando ou desatualizados e ainda sem PR aberta.
 function pendingFixes(repo) {
@@ -279,9 +291,13 @@ function renderMatrix() {
 
   const withPending = repos.filter((r) => pendingFixes(r).length);
   const fixes = withPending.reduce((n, r) => n + pendingFixes(r).length, 0);
+  const toMain = repos.filter((r) => pendingPromotes(r).length);
+  const promoteBtn = toMain.length
+    ? `<button class="btn" type="button" data-promote-bulk>${icons.upload()}Levar para a main em ${toMain.length} repo${toMain.length > 1 ? 's' : ''}</button>`
+    : '';
   $('fix-bulk').innerHTML = withPending.length
-    ? `<button class="btn primary" type="button" data-fix-bulk>${icons.wrench()}Corrigir ${fixes} pendência${fixes > 1 ? 's' : ''} em ${withPending.length} repo${withPending.length > 1 ? 's' : ''}</button>`
-    : '<span class="badge ok">Sem pendências com correção automática</span>';
+    ? `${promoteBtn}<button class="btn primary" type="button" data-fix-bulk>${icons.wrench()}Corrigir ${fixes} pendência${fixes > 1 ? 's' : ''} em ${withPending.length} repo${withPending.length > 1 ? 's' : ''}</button>`
+    : `${promoteBtn}<span class="badge ok">Sem pendências com correção automática</span>`;
 }
 
 function renderDrawer() {
@@ -289,6 +305,7 @@ function renderDrawer() {
   if (!r) return;
   const wf = `${r.url}/tree/${encodeURIComponent(r.defaultBranch ?? 'main')}/.github/workflows`;
   const pending = pendingFixes(r);
+  const promotes = pendingPromotes(r);
 
   const checks = state.data.checks
     .map((def) => {
@@ -297,12 +314,16 @@ function renderDrawer() {
       const files = res.files.map((f) => `<code>${esc(f)}</code>`).join(' ');
       let detail = res.ok ? files : esc(def.description);
       if (res.outdated) detail = `${files}<br>Fora do modelo atual do HUB.`;
-      else if (res.inTransit) detail = `${files}<br>Já está na dev. Chega na main com a próxima release.`;
+      else if (res.inTransit) detail = `${files}<br>Só na ${esc(r.integrationBranch)}. PRs direto para a main não rodam este workflow até ele chegar lá.`;
 
       let action = '';
       const openPr = fixPrFor(r, def);
+      const mainPr = res.inTransit ? promotePrFor(r, def) : null;
       if (res.keepOwn) action = `<span class="badge info" title="${esc(r.note ?? '')}">Canal próprio</span>`;
-      else if (openPr) action = ext(openPr.url, `PR #${openPr.number}`, 'badge ok');
+      else if (mainPr) action = ext(mainPr.url, `PR #${mainPr.number}`, 'badge ok');
+      else if (res.inTransit) {
+        action = `<button class="btn mini" type="button" data-promote="${esc(def.id)}">${icons.upload()}Levar para a main</button>`;
+      } else if (openPr) action = ext(openPr.url, `PR #${openPr.number}`, 'badge ok');
       else if (def.fix && (!res.ok || res.outdated)) {
         action = `<button class="btn mini" type="button" data-fix="${esc(def.id)}">${icons.wrench()}${res.ok ? 'Atualizar' : 'Corrigir'}</button>`;
       }
@@ -348,6 +369,7 @@ function renderDrawer() {
     <div class="d-body">
       <section class="d-section"><h3>Padrões <span class="count">${requiredDefs().length - missingRequired(r).length}/${requiredDefs().length}</span></h3>
         ${pending.length > 1 ? `<div class="fix-all"><span>${pending.length} pendências com correção automática</span><button class="btn mini primary" type="button" data-fix-repo>${icons.wrench()}Corrigir tudo numa PR</button></div>` : ''}
+        ${promotes.length > 1 ? `<div class="fix-all"><span>${promotes.length} padrões só na ${esc(r.integrationBranch)}</span><button class="btn mini primary" type="button" data-promote-repo>${icons.upload()}Levar todos para a main</button></div>` : ''}
         <div class="check-list">${checks}</div>
       </section>
       <section class="d-section"><h3>Pull requests <span class="count">${r.prCount || ''}</span></h3>
@@ -373,15 +395,16 @@ const JOB_STATUS = {
   empty: 'Nada a fazer',
 };
 
-function jobFor(repoName, defIds) {
-  return { repo: repoName, defIds, status: 'planning', plan: null, pr: null, error: null };
+function jobFor(repoName, defIds, mode = 'fix') {
+  return { repo: repoName, defIds, mode, status: 'planning', plan: null, pr: null, error: null };
 }
 
 async function planJob(job) {
   const r = findRepo(job.repo);
   const defs = job.defIds.map((id) => state.data.checks.find((c) => c.id === id));
   try {
-    job.plan = await buildPlan(state.token, state.data.org, r, defs);
+    const build = job.mode === 'promote' ? buildPromotePlan : buildPlan;
+    job.plan = await build(state.token, state.data.org, r, defs);
     if (!r.canWrite) job.status = 'blocked';
     else job.status = job.plan.files.length ? 'ready' : 'empty';
   } catch (err) {
@@ -483,7 +506,8 @@ function renderFix() {
     const r = findRepo(single.repo);
     const labels = single.defIds.map((id) => state.data.checks.find((c) => c.id === id).label);
     const update = single.defIds.length === 1 && r.checks.find((c) => c.id === single.defIds[0]).ok;
-    head = `${avatar(r, 'sm')}<div><span class="eyebrow">${update ? 'Atualizar padrão' : 'Corrigir padrão'}</span><h2>${esc(labels.join(', '))} em ${esc(r.label)}</h2></div>`;
+    const eyebrow = single.mode === 'promote' ? 'Levar para a main' : update ? 'Atualizar padrão' : 'Corrigir padrão';
+    head = `${avatar(r, 'sm')}<div><span class="eyebrow">${eyebrow}</span><h2>${esc(labels.join(', '))} em ${esc(r.label)}</h2></div>`;
 
     const alerts = [];
     if (single.status === 'blocked') {
@@ -1077,6 +1101,17 @@ document.addEventListener('click', (e) => {
   if (e.target.closest('[data-close]')) closeDrawer();
   const fixBtn = e.target.closest('[data-fix]');
   if (fixBtn) openFix([jobFor(state.openRepo, [fixBtn.dataset.fix])]);
+  const promoteBtn = e.target.closest('[data-promote]');
+  if (promoteBtn) openFix([jobFor(state.openRepo, [promoteBtn.dataset.promote], 'promote')]);
+  if (e.target.closest('[data-promote-repo]')) {
+    openFix([jobFor(state.openRepo, pendingPromotes(findRepo(state.openRepo)).map((d) => d.id), 'promote')]);
+  }
+  if (e.target.closest('[data-promote-bulk]')) {
+    const jobs = state.data.repos
+      .filter((r) => pendingPromotes(r).length)
+      .map((r) => jobFor(r.name, pendingPromotes(r).map((d) => d.id), 'promote'));
+    openFix(jobs);
+  }
   if (e.target.closest('[data-fix-repo]')) {
     openFix([jobFor(state.openRepo, pendingFixes(findRepo(state.openRepo)).map((d) => d.id))]);
   }

@@ -603,6 +603,7 @@ main { max-width: 1360px; margin: 0 auto; padding: 28px 28px 64px; display: grid
   color: var(--muted);
   font-size: 12.5px;
 }
+#fix-bulk { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 #fix-bulk .btn { height: 34px; }
 
 .fix { position: fixed; inset: 0; z-index: 45; display: grid; place-items: center; padding: 16px; pointer-events: none; }
