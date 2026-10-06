@@ -1,24 +1,28 @@
 name: Aviso de manutenção
 
-# Disparado pelo HUB (repository_dispatch) quando alguém exclui ou restaura branches.
-# Posta no canal de manutenção do Discord com o webhook guardado em secret, que o
-# navegador nunca vê.
+# Posta no canal de manutenção do Discord, com o webhook guardado em secret (o navegador nunca vê):
+#   - branches excluídas ou restauradas pelo HUB (repository_dispatch disparado pelo próprio HUB);
+#   - repositórios que entraram ou saíram do monitoramento (push na main mudando o hub.config.json).
 #
 # Secret neste repositório:
 #   - DISCORD_MAINTENANCE_WEBHOOK_URL : webhook do canal #hub-manutencao
 #
-# Atenção: este repositório é público, então os logs também são. O script não imprime
-# o conteúdo do evento; não adicione passos que imprimam.
+# Atenção: este repositório é público, então os logs também são. Os scripts não imprimem
+# o conteúdo dos eventos; não adicione passos que imprimam.
 
 on:
   repository_dispatch:
     types: [hub-maintenance]
+  push:
+    branches: [main]
+    paths: ['public/hub.config.json']
 
 permissions:
   contents: read
 
 jobs:
-  notify:
+  branches:
+    if: github.event_name == 'repository_dispatch'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -30,3 +34,19 @@ jobs:
           DISCORD_MAINTENANCE_WEBHOOK_URL: ${{ secrets.DISCORD_MAINTENANCE_WEBHOOK_URL }}
           ACTOR: ${{ github.actor }}
         run: node scripts/notify-maintenance.mjs
+
+  repos:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Avisar o Discord
+        env:
+          DISCORD_MAINTENANCE_WEBHOOK_URL: ${{ secrets.DISCORD_MAINTENANCE_WEBHOOK_URL }}
+          BEFORE: ${{ github.event.before }}
+        run: node scripts/notify-config.mjs

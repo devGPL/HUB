@@ -1,7 +1,8 @@
-import { AuthError, collect, findOpenPr, openFixPr, whoami } from './github.js';
+import { AuthError, collect, findOpenPr, getText, listOrgRepos, logoCandidates, openFixPr, repoPermissions, whoami } from './github.js';
+import { addRepo, removeRepo } from './config-edit.js';
 import { buildPlan, COMBINED_BRANCH, planBody } from './fixes.js';
 import { analyzeBranches, cleanupCandidates, deleteMany, notifyMaintenance, restoreMany } from './cleanup.js';
-import { logoUrl } from './logos.js';
+import { logoUrl, previewLogo } from './logos.js';
 import { icons } from './icons.js';
 
 const AUTO_REFRESH_MS = 5 * 60 * 1000;
@@ -22,6 +23,7 @@ const state = {
   loading: false,
   fix: null,
   cleanup: null,
+  admin: null,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -698,6 +700,224 @@ function renderCleanup() {
     <div class="m-foot">${footer}</div>`;
 }
 
+/* ---------- Cadastro de repositórios ---------- */
+// Toda mudança vira PR no repositório do HUB alterando o hub.config.json; o merge publica o site.
+
+const CONFIG_PATH = 'public/hub.config.json';
+
+function openAdmin() {
+  const a = { step: 'loading', repos: [], query: '', canWrite: false, picked: null, error: null, confirmRemove: null };
+  state.admin = a;
+  $('admin').classList.add('open');
+  renderAdmin();
+  Promise.all([listOrgRepos(state.token, state.data.org), repoPermissions(state.token, state.data.org, state.data.hubRepo)])
+    .then(([repos, perms]) => {
+      Object.assign(a, { repos, canWrite: Boolean(perms.push), step: 'list' });
+    })
+    .catch((err) => Object.assign(a, { step: 'error', error: esc(err.message) }))
+    .finally(() => state.admin === a && renderAdmin());
+}
+
+function closeAdmin() {
+  const a = state.admin;
+  if (!a || a.step === 'saving') return;
+  state.admin = null;
+  $('admin').classList.remove('open');
+}
+
+function pickRepo(name) {
+  const a = state.admin;
+  const info = a.repos.find((r) => r.name === name);
+  a.picked = { name, info, label: name, logos: null, choice: -1, tile: 'dark' };
+  a.step = 'configure';
+  renderAdmin();
+  const picked = a.picked;
+  logoCandidates(state.token, state.data.org, name)
+    .then(async (cands) => {
+      const previews = [];
+      for (const c of cands.slice(0, 6)) {
+        try {
+          previews.push(await previewLogo(state.token, state.data.org, name, c.path));
+        } catch {
+          // Imagem que o navegador não abre: fica de fora da lista.
+        }
+      }
+      picked.logos = previews;
+      if (previews.length) Object.assign(picked, { choice: 0, tile: previews[0].tile });
+    })
+    .catch(() => (picked.logos = []))
+    .finally(() => state.admin?.picked === picked && renderAdmin());
+}
+
+function addBody(entry) {
+  return [
+    '## Monitoramento',
+    '',
+    `Adiciona **${entry.name}** ao [GPL HUB](https://devgpl.github.io/HUB/). Depois do merge, o site atualiza sozinho.`,
+    '',
+    '## Checklist do repositório novo',
+    '- [ ] Incluir o repositório no token `HUB_READ_TOKEN` do resumo diário (senão ele aparece como sem acesso)',
+    '- [ ] Se for notificar PRs no canal compartilhado: secret `DISCORD_WEBHOOK_URL` e variável `DISCORD_PO_USER_ID` no próprio repositório',
+    '- [ ] Abrir o repositório no HUB e usar **Corrigir** nos padrões que faltarem',
+  ].join('\n');
+}
+
+async function saveAdmin(kind, name) {
+  const a = state.admin;
+  const { org, hubRepo } = state.data;
+  a.step = 'saving';
+  renderAdmin();
+  try {
+    const text = await getText(state.token, org, hubRepo, CONFIG_PATH, 'main');
+    let content;
+    let branch;
+    let title;
+    let body;
+    if (kind === 'add') {
+      const p = a.picked;
+      const label = $('admin-label')?.value.trim() || p.label;
+      const logo = p.choice >= 0 ? p.logos[p.choice] : null;
+      const entry = {
+        name,
+        ...(label && label !== name ? { label } : {}),
+        ...(logo ? { logo: { path: logo.path, ...(logo.crop ? { crop: logo.crop } : {}), tile: p.tile } } : {}),
+      };
+      content = addRepo(text, entry);
+      branch = `chore/hub-add-${name}`;
+      title = `chore: monitora ${name} no HUB`;
+      body = addBody(entry);
+    } else {
+      content = removeRepo(text, name);
+      branch = `chore/hub-remove-${name}`;
+      title = `chore: tira ${name} do monitoramento do HUB`;
+      body = `## Monitoramento\n\nRemove **${name}** do [GPL HUB](https://devgpl.github.io/HUB/). O repositório não é alterado; ele só deixa de aparecer no painel e no resumo diário.`;
+    }
+    a.pr =
+      (await findOpenPr(state.token, org, hubRepo, branch)) ??
+      (await openFixPr(state.token, { org, repo: hubRepo, base: 'main', branch, files: [{ path: CONFIG_PATH, content }], title, body }));
+    Object.assign(a, { step: 'done', doneKind: kind, doneName: name });
+  } catch (err) {
+    Object.assign(a, { step: 'error', error: explain(err) });
+  }
+  if (state.admin === a) renderAdmin();
+}
+
+function adminList(a) {
+  const monitored = new Set(state.data.repos.map((r) => r.name));
+  const q = a.query.trim().toLowerCase();
+  const available = a.repos.filter((r) => !monitored.has(r.name) && r.name !== state.data.hubRepo && (!q || `${r.name} ${r.description ?? ''}`.toLowerCase().includes(q)));
+  const disabled = a.canWrite ? '' : 'disabled';
+
+  const mon = state.data.repos
+    .map((r) => {
+      const confirm = a.confirmRemove === r.name;
+      const actions = confirm
+        ? `<button class="btn mini ghost" type="button" data-admin-cancel>Manter</button><button class="btn mini danger" type="button" data-admin-remove-go="${esc(r.name)}">Confirmar remoção</button>`
+        : `<button class="btn mini danger-ghost" type="button" data-admin-remove="${esc(r.name)}" ${disabled}>Remover</button>`;
+      return `<div class="ad-row">${avatar(r, 'sm')}<div class="ad-main"><b>${esc(r.label)}</b><span>${esc(r.name)}</span></div><div class="ad-actions">${actions}</div></div>`;
+    })
+    .join('');
+
+  const avail = available.length
+    ? available
+        .map(
+          (r) => `<div class="ad-row">
+            <span class="avatar sm letter" style="--h:${hue(r.name)}"><span>${esc(r.name.charAt(0).toUpperCase())}</span></span>
+            <div class="ad-main"><b>${esc(r.name)}</b><span>${esc(r.description ?? 'Sem descrição')} · push ${ago(r.pushedAt)}${r.isPrivate ? '' : ' · público'}</span></div>
+            <div class="ad-actions">${
+              r.isEmpty
+                ? '<span class="badge mute">Vazio</span>'
+                : `<button class="btn mini" type="button" data-admin-pick="${esc(r.name)}" ${disabled}>${icons.plus()}Adicionar</button>`
+            }</div>
+          </div>`,
+        )
+        .join('')
+    : '<div class="empty">Nenhum repositório encontrado.</div>';
+
+  return `
+    ${a.canWrite ? '' : `<div class="alert warn">${icons.alert()}<div><b>Só leitura</b>Para adicionar ou remover, você precisa de escrita no repositório <code>${esc(state.data.org)}/${esc(state.data.hubRepo)}</code>.</div></div>`}
+    <section class="ad-section"><h4>Monitorados <span class="count">${state.data.repos.length}</span></h4><div class="ad-list">${mon}</div></section>
+    <section class="ad-section">
+      <h4>Disponíveis na ${esc(state.data.org)} <span class="count">${available.length}</span></h4>
+      <label class="search wide">${icons.search()}<input type="search" id="admin-search" placeholder="Buscar na organização" value="${esc(a.query)}" /></label>
+      <div class="ad-list">${avail}</div>
+    </section>`;
+}
+
+function adminConfigure(a) {
+  const p = a.picked;
+  const chosen = p.choice >= 0 && p.logos ? p.logos[p.choice] : null;
+  const preview = chosen
+    ? `<span class="avatar lg tile-${p.tile}"><img src="${chosen.url}" alt="" /></span>`
+    : `<span class="avatar lg letter" style="--h:${hue(p.name)}"><span>${esc((p.label || p.name).charAt(0).toUpperCase())}</span></span>`;
+
+  let logos;
+  if (!p.logos) logos = '<div class="empty">Procurando logos no repositório</div>';
+  else {
+    const opts = p.logos
+      .map(
+        (l, i) => `<button class="lg-opt ${p.choice === i ? 'on' : ''}" type="button" data-admin-logo="${i}" title="${esc(l.path)}">
+          <span class="avatar tile-${p.choice === i ? p.tile : l.tile}"><img src="${l.url}" alt="" /></span><span class="lg-path">${esc(l.path.split('/').pop())}</span>
+        </button>`,
+      )
+      .join('');
+    logos = `<div class="lg-grid">${opts}
+      <button class="lg-opt ${p.choice === -1 ? 'on' : ''}" type="button" data-admin-logo="-1">
+        <span class="avatar letter" style="--h:${hue(p.name)}"><span>${esc((p.label || p.name).charAt(0).toUpperCase())}</span></span><span class="lg-path">Inicial</span>
+      </button></div>
+      ${p.logos.length ? '' : '<p class="hint">Nenhuma imagem com nome de logo ou ícone foi encontrada; o projeto vai aparecer com a inicial.</p>'}`;
+  }
+
+  return `
+    <div class="ad-config">
+      <div class="ad-preview">${preview}<div><b>${esc(p.label || p.name)}</b><span>${esc(p.info?.description ?? '')}</span></div></div>
+      <label class="field"><span>Nome no HUB</span><input type="text" id="admin-label" value="${esc(p.label)}" /></label>
+      <div class="field"><span>Logo</span>${logos}</div>
+      ${chosen ? `<div class="field"><span>Fundo do ícone</span><div class="seg">
+        <button class="chip ${p.tile === 'dark' ? 'active' : ''}" type="button" data-admin-tile="dark">Escuro</button>
+        <button class="chip ${p.tile === 'light' ? 'active' : ''}" type="button" data-admin-tile="light">Claro</button>
+      </div></div>` : ''}
+      <dl class="plan">
+        <dt>Repositório</dt><dd><code>${esc(state.data.org)}/${esc(state.data.hubRepo)}</code></dd>
+        <dt>Branch</dt><dd><code>chore/hub-add-${esc(p.name)}</code></dd>
+        <dt>Arquivo</dt><dd><code>${CONFIG_PATH}</code>, uma linha nova</dd>
+      </dl>
+    </div>`;
+}
+
+function renderAdmin() {
+  const a = state.admin;
+  if (!a) return;
+  let body;
+  let footer = `<button class="btn ghost" type="button" data-admin-close>Fechar</button>`;
+  let title = 'Repositórios monitorados';
+
+  if (a.step === 'loading') body = '<div class="empty"><b>Carregando</b>Buscando os repositórios da organização.</div>';
+  else if (a.step === 'list') body = adminList(a);
+  else if (a.step === 'configure') {
+    title = `Adicionar ${a.picked.name}`;
+    body = adminConfigure(a);
+    footer = `<button class="btn ghost" type="button" data-admin-back>Voltar</button><button class="btn primary" type="button" data-admin-save ${a.picked.logos ? '' : 'disabled'}>${icons.pr()}Abrir PR</button>`;
+  } else if (a.step === 'saving') {
+    body = '<div class="empty"><b>Abrindo PR</b>Alterando o hub.config.json no repositório do HUB.</div>';
+    footer = '';
+  } else if (a.step === 'done') {
+    const added = a.doneKind === 'add';
+    body = `<div class="alert ok">${icons.check()}<div><b>PR #${a.pr.number} aberta</b>${added ? `Quando ela for mesclada, <b>${esc(a.doneName)}</b> aparece no HUB e no resumo diário.` : `Quando ela for mesclada, <b>${esc(a.doneName)}</b> sai do HUB e do resumo diário.`} O #hub-manutencao recebe um aviso no merge.</div></div>
+      ${added ? `<div class="alert info">${icons.key()}<div><b>Depois do merge</b>Inclua o repositório no token <code>HUB_READ_TOKEN</code> do resumo diário e, se for notificar PRs no canal compartilhado, configure no repositório o secret <code>DISCORD_WEBHOOK_URL</code> e a variável <code>DISCORD_PO_USER_ID</code>. A lista está na descrição da PR.</div></div>` : ''}`;
+    footer = `<button class="btn ghost" type="button" data-admin-close>Fechar</button>${ext(a.pr.html_url, `${icons.external()}Ver PR #${a.pr.number}`, 'btn primary')}`;
+  } else if (a.step === 'error') {
+    body = `<div class="alert bad">${icons.alert()}<div><b>Não deu certo</b>${a.error}</div></div>`;
+    footer = `<button class="btn ghost" type="button" data-admin-close>Fechar</button>${state.admin.repos.length ? '<button class="btn" type="button" data-admin-back>Voltar</button>' : ''}`;
+  }
+
+  $('admin-panel').innerHTML = `
+    <div class="m-head"><span class="avatar sm letter" style="--h:85"><span>${icons.repo()}</span></span><div><span class="eyebrow">Gerenciar</span><h2>${esc(title)}</h2></div>
+      <button class="icon-btn" type="button" data-admin-close aria-label="Fechar">${icons.close()}</button></div>
+    <div class="m-body">${body}</div>
+    ${footer ? `<div class="m-foot">${footer}</div>` : ''}`;
+}
+
 function render() {
   if (!state.data) return;
   renderStats();
@@ -868,6 +1088,43 @@ document.addEventListener('click', (e) => {
   }
   if ((e.target.closest('[data-fix-close]') || e.target.matches('#fix .fix-backdrop')) && state.fix) closeFix();
 
+  if (e.target.closest('[data-admin]')) openAdmin();
+  const a = state.admin;
+  if (a) {
+    if (e.target.closest('[data-admin-close]') || e.target.matches('#admin .fix-backdrop')) closeAdmin();
+    const pick = e.target.closest('[data-admin-pick]');
+    if (pick) pickRepo(pick.dataset.adminPick);
+    if (e.target.closest('[data-admin-back]')) {
+      Object.assign(a, { step: 'list', picked: null, error: null });
+      renderAdmin();
+    }
+    const logo = e.target.closest('[data-admin-logo]');
+    if (logo && a.picked) {
+      const i = Number(logo.dataset.adminLogo);
+      a.picked.label = $('admin-label')?.value ?? a.picked.label;
+      Object.assign(a.picked, { choice: i, ...(i >= 0 ? { tile: a.picked.logos[i].tile } : {}) });
+      renderAdmin();
+    }
+    const tile = e.target.closest('[data-admin-tile]');
+    if (tile && a.picked) {
+      a.picked.label = $('admin-label')?.value ?? a.picked.label;
+      a.picked.tile = tile.dataset.adminTile;
+      renderAdmin();
+    }
+    if (e.target.closest('[data-admin-save]')) saveAdmin('add', a.picked.name);
+    const rm = e.target.closest('[data-admin-remove]');
+    if (rm) {
+      a.confirmRemove = rm.dataset.adminRemove;
+      renderAdmin();
+    }
+    if (e.target.closest('[data-admin-cancel]')) {
+      a.confirmRemove = null;
+      renderAdmin();
+    }
+    const rmGo = e.target.closest('[data-admin-remove-go]');
+    if (rmGo) saveAdmin('remove', rmGo.dataset.adminRemoveGo);
+  }
+
   if (e.target.closest('[data-cleanup]')) openCleanup();
   if (e.target.closest('[data-cleanup-close]') || e.target.matches('#cleanup .fix-backdrop')) closeCleanup();
   const c = state.cleanup;
@@ -898,6 +1155,19 @@ document.addEventListener('click', (e) => {
     renderDrawer();
   }
 });
+document.addEventListener('input', (e) => {
+  const a = state.admin;
+  if (!a) return;
+  if (e.target.id === 'admin-label' && a.picked) a.picked.label = e.target.value;
+  if (e.target.id === 'admin-search') {
+    a.query = e.target.value;
+    renderAdmin();
+    const input = $('admin-search');
+    input.focus();
+    input.setSelectionRange(input.value.length, input.value.length);
+  }
+});
+
 document.addEventListener('change', (e) => {
   const box = e.target.closest('[data-cl]');
   const c = state.cleanup;
@@ -910,6 +1180,7 @@ document.addEventListener('change', (e) => {
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
   if (state.cleanup) closeCleanup();
+  else if (state.admin) closeAdmin();
   else if (state.fix) closeFix();
   else closeDrawer();
 });
@@ -929,6 +1200,7 @@ async function devToken() {
 
 async function boot() {
   $('refresh').innerHTML = `${icons.refresh()}Atualizar`;
+  $('admin-open').innerHTML = `${icons.sliders()}Gerenciar repositórios`;
   $('search-icon').outerHTML = icons.search();
   state.config = await (await fetch('hub.config.json', { cache: 'no-store' })).json();
   $('org-link').href = `https://github.com/${state.config.org}`;

@@ -85,10 +85,13 @@
             <button data-filter="noncompliant" class="chip" type="button">Fora do padrão</button>
             <button data-filter="stale" class="chip" type="button">Branches paradas</button>
           </div>
-          <label class="search">
-            <span id="search-icon"></span>
-            <input type="search" id="search" placeholder="Buscar repositório" />
-          </label>
+          <div class="toolbar-right">
+            <label class="search">
+              <span id="search-icon"></span>
+              <input type="search" id="search" placeholder="Buscar repositório" />
+            </label>
+            <button class="btn" type="button" id="admin-open" data-admin></button>
+          </div>
         </div>
         <div class="cards" id="cards"></div>
       </section>
@@ -120,6 +123,11 @@
   <div class="fix" id="fix">
     <div class="fix-backdrop"></div>
     <div class="fix-panel cut" role="dialog" aria-modal="true" id="fix-panel"></div>
+  </div>
+
+  <div class="fix" id="admin">
+    <div class="fix-backdrop"></div>
+    <div class="fix-panel cut" role="dialog" aria-modal="true" id="admin-panel"></div>
   </div>
 
   <div class="fix" id="cleanup">

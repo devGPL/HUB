@@ -323,6 +323,47 @@ export async function failedWorkflowRuns(token, org, repo, branch, headSha, even
     .map((run) => ({ workflow: run.name, url: run.html_url, at: run.updated_at }));
 }
 
+/* ---------- Cadastro de repositórios ---------- */
+
+/** Repositórios ativos da organização que quem está usando consegue ver, mais recentes primeiro. */
+export async function listOrgRepos(token, org) {
+  const repos = [];
+  let after = null;
+  for (let page = 0; page < 5; page++) {
+    const { data } = await graphql(
+      token,
+      `{ organization(login: "${org}") { repositories(first: 100, ${after ? `after: "${after}", ` : ''}orderBy: { field: PUSHED_AT, direction: DESC }) {
+        pageInfo { hasNextPage endCursor }
+        nodes { name description pushedAt isPrivate isArchived isEmpty viewerPermission defaultBranchRef { name } }
+      } } }`,
+    );
+    const conn = data?.organization?.repositories;
+    if (!conn) break;
+    repos.push(...conn.nodes.filter((r) => !r.isArchived));
+    if (!conn.pageInfo.hasNextPage) break;
+    after = conn.pageInfo.endCursor;
+  }
+  return repos;
+}
+
+const LOGO_FILE = /(logo|icon|favicon|brand)[^/]*\.(png|jpe?g|webp)$/i;
+const LOGO_SKIP = /node_modules|\.next\/|\/dist\/|\/build\/|apple-touch|android-chrome|mstile|gpl-logo|logo-gpl/i;
+
+/** Imagens com cara de logo na branch padrão (PNG, JPG ou WebP; SVG fica de fora porque não dá para recortar com segurança). */
+export async function logoCandidates(token, org, repo) {
+  const { tree } = await rest(token, 'GET', `/repos/${org}/${repo}/git/trees/HEAD?recursive=1`);
+  return tree
+    .filter((e) => e.type === 'blob' && LOGO_FILE.test(e.path) && !LOGO_SKIP.test(e.path) && e.size < 3_000_000)
+    .map((e) => ({ path: e.path, size: e.size }))
+    .sort((a, b) => Number(/favicon/i.test(a.path)) - Number(/favicon/i.test(b.path)) || a.path.length - b.path.length)
+    .slice(0, 8);
+}
+
+export async function repoPermissions(token, org, repo) {
+  const r = await rest(token, 'GET', `/repos/${org}/${repo}`);
+  return r.permissions ?? {};
+}
+
 /* ---------- Branches: análise, exclusão e restauração ---------- */
 
 /** Quantos commits da branch não estão na base (0 = tudo já está na base). */

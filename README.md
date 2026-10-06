@@ -98,6 +98,17 @@ node scripts/digest.mjs --print
 
 O GitHub desativa agendamentos de repositórios públicos depois de 60 dias sem atividade no repo. Se o resumo parar de chegar, reative em *Actions > Resumo diário*.
 
+## Gerenciar repositórios pela tela
+
+Na aba Repositórios, **Gerenciar repositórios** lista os monitorados e os repositórios da organização que ainda não estão no HUB.
+
+- **Adicionar**: escolha o repositório, o nome de exibição e a logo. O HUB procura imagens com nome de logo ou ícone no repositório, tira as margens sozinho e sugere o fundo do ícone (claro ou escuro). Sem logo, fica a inicial.
+- **Remover**: tira o repositório do painel e do resumo; o repositório em si não é alterado.
+
+Nos dois casos o HUB abre uma PR neste repositório mudando uma linha do `public/hub.config.json`. Quando ela é mesclada, o site é publicado de novo e o workflow `maintenance.yml` avisa no canal de manutenção quem entrou ou saiu, com o checklist do que falta configurar no repositório novo (acesso no `HUB_READ_TOKEN` e, para notificar PRs no canal, `DISCORD_WEBHOOK_URL` e `DISCORD_PO_USER_ID`).
+
+Precisa de escrita no repositório do HUB.
+
 ## Limpeza de branches paradas
 
 No painel de cada repositório, em *Branches de trabalho*, o botão **Limpar paradas** lista as branches sem commit há mais de `staleBranchDays` dias e sem PR aberta. Nunca aparecem `main`, `dev`, `develop`, a branch padrão e o que casar com `cleanup.keep` (por padrão, branches do release-please e `gh-pages`).
