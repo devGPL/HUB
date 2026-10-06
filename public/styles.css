@@ -21,7 +21,7 @@
   --bad-soft: rgba(255, 79, 109, 0.12);
   --warn: #ffb547;
   --warn-soft: rgba(255, 181, 71, 0.12);
-  --gold: #ffd84a;
+  --pink: #ff2d9b;
 
   --font-display: 'Chakra Petch', 'Segoe UI', sans-serif;
   --font-body: 'IBM Plex Sans', 'Segoe UI', sans-serif;
@@ -326,7 +326,7 @@ main { max-width: 1360px; margin: 0 auto; padding: 28px 28px 64px; display: grid
 .search input { padding-left: 34px; height: 32px; font-family: var(--font-body); }
 
 /* ---------- Cards de repo ---------- */
-.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 14px; }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(330px, 100%), 1fr)); gap: 14px; }
 .card {
   --edge: var(--line);
   display: grid;
@@ -387,7 +387,7 @@ main { max-width: 1360px; margin: 0 auto; padding: 28px 28px 64px; display: grid
   clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
 }
 .grade.lg { width: 52px; height: 52px; font-size: 26px; }
-[data-grade='S'] { --grade-color: var(--gold); }
+[data-grade='S'] { --grade-color: var(--pink); }
 [data-grade='A'] { --grade-color: var(--acc); }
 [data-grade='B'] { --grade-color: var(--cyan); }
 [data-grade='C'] { --grade-color: var(--warn); }
