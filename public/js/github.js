@@ -10,10 +10,11 @@ const BRANCH_STATUS = `name target { ... on Commit { url statusCheckRollup { sta
 const FAILED = new Set(['FAILURE', 'ERROR', 'TIMED_OUT', 'STARTUP_FAILURE']);
 
 // Nome legível de cada check que falhou: o workflow do Actions ou o contexto de status (ex.: Vercel).
+// Com token fine-grained, o GitHub devolve null no lugar dos checks que o token não pode ler.
 function failedChecks(rollup) {
-  const names = (rollup?.contexts.nodes ?? [])
-    .filter((c) => FAILED.has(c.conclusion ?? c.state))
-    .map((c) => c.checkSuite?.workflowRun?.workflow.name ?? c.name ?? c.context);
+  const names = (rollup?.contexts?.nodes ?? [])
+    .filter((c) => c && FAILED.has(c.conclusion ?? c.state))
+    .map((c) => c.checkSuite?.workflowRun?.workflow?.name ?? c.name ?? c.context);
   return [...new Set(names)];
 }
 
@@ -191,7 +192,7 @@ function shapeRepo(raw, entry, config) {
       review: p.reviewDecision,
       mergeable: p.mergeable,
       ci: p.commits.nodes[0]?.commit.statusCheckRollup?.state ?? null,
-      reviewers: p.reviewRequests.nodes.map((r) => r.requestedReviewer?.login ?? r.requestedReviewer?.name).filter(Boolean),
+      reviewers: p.reviewRequests.nodes.map((r) => r?.requestedReviewer?.login ?? r?.requestedReviewer?.name).filter(Boolean),
     })),
     workflows: workflows.map((w) => w.name),
     checks,
