@@ -244,6 +244,22 @@ function renderCards() {
     </button>`,
   );
 
+  // Nenhum repo visível: quase sempre é o token sem acesso à organização, não os repos sumidos.
+  if (!state.data.repos.length && state.data.missing.length) {
+    $('cards').innerHTML = `<div class="token-help alert bad">${icons.key()}<div>
+      <b>Seu token não enxerga os repositórios da ${esc(state.data.org)}</b>
+      O login funcionou, mas o GitHub não mostra nenhum dos ${state.data.missing.length} repositórios para este token. Confira em
+      ${ext('https://github.com/settings/personal-access-tokens', 'github.com/settings/personal-access-tokens', 'link-inline')}:
+      <ol>
+        <li><b>Resource owner</b> precisa ser <code>${esc(state.data.org)}</code>. Se estiver com o seu usuário, crie outro token escolhendo a organização.</li>
+        <li><b>Status</b> precisa estar ativo. Se estiver <i>pending</i>, um owner aprova em ${ext(`https://github.com/organizations/${state.data.org}/settings/personal-access-token-requests`, 'pedidos de token da organização', 'link-inline')}.</li>
+        <li><b>Repository access</b> precisa incluir os repositórios do HUB. O mais simples é <i>All repositories</i>.</li>
+      </ol>
+      Depois, saia pelo botão ao lado do seu nome e entre de novo com o token certo.
+    </div></div>`;
+    return;
+  }
+
   const missing = state.data.missing.map(
     (m) => `<div class="card cut" data-grade="D"><div class="empty"><b>${esc(m.name)}</b>${esc(m.error)}</div></div>`,
   );
